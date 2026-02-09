@@ -17,10 +17,14 @@ cp .env.example .env
 npm run dev
 ```
 
+Use `npx netlify dev` when testing Netlify Functions locally (`create-room`, `join-room`).
+
 Required environment variables:
 
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY` (server-only for Netlify Functions)
 - `TMDB_API_KEY`
 
 ## Commands

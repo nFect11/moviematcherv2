@@ -2,5 +2,9 @@
   "name": "@moviematcher/functions",
   "private": true,
   "version": "0.1.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@moviematcher/shared": "0.1.0",
+    "@supabase/supabase-js": "^2.95.3"
+  }
 }
