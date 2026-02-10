@@ -1,4 +1,14 @@
-import type { RoomActionResult, RoomCreateInput, RoomJoinInput } from "@moviematcher/shared";
+import type {
+  MovieDetails,
+  MovieDetailsInput,
+  SubmitDecisionInput,
+  SubmitDecisionResult,
+  RoomActionResult,
+  RoomCreateInput,
+  RoomJoinInput,
+  StartRoomInput,
+  StartRoomResult
+} from "@moviematcher/shared";
 import { ensureAnonymousSession } from "./session";
 
 interface ApiErrorPayload {
@@ -39,4 +49,16 @@ export function createRoom(payload: RoomCreateInput) {
 
 export function joinRoom(payload: RoomJoinInput) {
   return postFunction<RoomJoinInput, RoomActionResult>("join-room", payload);
+}
+
+export function startRoom(payload: StartRoomInput) {
+  return postFunction<StartRoomInput, StartRoomResult>("start-room", payload);
+}
+
+export function fetchMovieDetails(payload: MovieDetailsInput) {
+  return postFunction<MovieDetailsInput, MovieDetails>("movie-details", payload);
+}
+
+export function submitDecision(payload: SubmitDecisionInput) {
+  return postFunction<SubmitDecisionInput, SubmitDecisionResult>("submit-decision", payload);
 }

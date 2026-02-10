@@ -7,6 +7,7 @@ coverage/
 .playwright/
 playwright-report/
 test-results/
+deno.lock
 
 # Environment files
 .env
@@ -23,3 +24,6 @@ old_movieMatcher/
 
 # Supabase local state
 supabase/.temp/
+
+# Local Netlify folder
+.netlify

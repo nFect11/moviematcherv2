@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 interface SessionState {
   nickname: string;
@@ -12,14 +13,21 @@ interface SessionState {
   clearRoomSession: () => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
-  nickname: "",
-  setNickname: (value) => set({ nickname: value }),
-  userId: null,
-  roomId: null,
-  roomCode: null,
-  role: null,
-  setUserId: (value) => set({ userId: value }),
-  setRoomSession: ({ roomId, roomCode, role }) => set({ roomId, roomCode, role }),
-  clearRoomSession: () => set({ roomId: null, roomCode: null, role: null })
-}));
+export const useSessionStore = create<SessionState>()(
+  persist(
+    (set) => ({
+      nickname: "",
+      setNickname: (value) => set({ nickname: value }),
+      userId: null,
+      roomId: null,
+      roomCode: null,
+      role: null,
+      setUserId: (value) => set({ userId: value }),
+      setRoomSession: ({ roomId, roomCode, role }) => set({ roomId, roomCode, role }),
+      clearRoomSession: () => set({ roomId: null, roomCode: null, role: null })
+    }),
+    {
+      name: "mm-session"
+    }
+  )
+);

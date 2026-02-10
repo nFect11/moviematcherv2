@@ -1,35 +1,37 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { motion } from "framer-motion";
-import { useMutation } from "@tanstack/react-query";
-import { createRoom, joinRoom } from "./lib/api";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Alert, Container, Paper, Stack, Title } from "@mantine/core";
+import type { RoomActionResult } from "@moviematcher/shared";
+import { ActiveRoomContainer } from "./components/active-room/ActiveRoomContainer";
+import { LobbyView, type LobbyViewModel } from "./components/lobby/LobbyView";
+import { RoomOnboarding } from "./components/onboarding/RoomOnboarding";
+import { RoomResults } from "./components/results/RoomResults";
+import { startRoom } from "./lib/api";
+import { fetchRoomSnapshot, subscribeToRoomChanges } from "./lib/room";
 import { ensureAnonymousSession } from "./lib/session";
 import { supabase } from "./lib/supabase";
 import { useSessionStore } from "./store/useSessionStore";
 
-function parseNumberList(raw: string) {
-  return raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value));
-}
+const ROOM_SNAPSHOT_POLL_INTERVAL_MS = 2000;
 
-function parseStringList(raw: string) {
-  return raw
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-}
+export function App() {
+  const {
+    nickname,
+    setNickname,
+    userId,
+    setUserId,
+    roomCode,
+    roomId,
+    role,
+    setRoomSession,
+    clearRoomSession,
+  } = useSessionStore();
 
-function App() {
-  const { nickname, setNickname, userId, setUserId, roomCode, roomId, role, setRoomSession } = useSessionStore();
-
-  const [roomCodeInput, setRoomCodeInput] = useState("");
-  const [preferredGenresInput, setPreferredGenresInput] = useState("");
-  const [blockedGenresInput, setBlockedGenresInput] = useState("");
-  const [providersInput, setProvidersInput] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const supabaseReady = Boolean(supabase);
+  const inRoom = Boolean(roomId);
 
   useEffect(() => {
     if (!supabase) {
@@ -41,167 +43,166 @@ function App() {
         setUserId(session.userId);
       })
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "Could not initialize anonymous session";
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Could not initialize anonymous session";
         setErrorMessage(message);
       });
   }, [setUserId]);
 
-  const preferredGenres = useMemo(() => parseNumberList(preferredGenresInput), [preferredGenresInput]);
-  const blockedGenres = useMemo(() => parseNumberList(blockedGenresInput), [blockedGenresInput]);
-  const providers = useMemo(() => parseStringList(providersInput), [providersInput]);
-
-  const createRoomMutation = useMutation({
-    mutationFn: createRoom,
-    onSuccess: (result) => {
-      setRoomSession({ roomId: result.roomId, roomCode: result.roomCode, role: result.role });
-      setErrorMessage(null);
-      setRoomCodeInput(result.roomCode);
-    },
-    onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : "Could not create room";
-      setErrorMessage(message);
-    }
+  const roomSnapshotQuery = useQuery({
+    queryKey: ["room", roomId],
+    queryFn: () => fetchRoomSnapshot(roomId ?? ""),
+    enabled: Boolean(roomId && supabaseReady),
+    refetchInterval: inRoom ? ROOM_SNAPSHOT_POLL_INTERVAL_MS : false,
+    refetchIntervalInBackground: true,
   });
 
-  const joinRoomMutation = useMutation({
-    mutationFn: joinRoom,
-    onSuccess: (result) => {
-      setRoomSession({ roomId: result.roomId, roomCode: result.roomCode, role: result.role });
+  useEffect(() => {
+    if (!roomId || !supabaseReady) {
+      return;
+    }
+
+    return subscribeToRoomChanges(roomId, () => {
+      void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+    });
+  }, [queryClient, roomId, supabaseReady]);
+
+  const startRoomMutation = useMutation({
+    mutationFn: startRoom,
+    onSuccess: () => {
       setErrorMessage(null);
-      setRoomCodeInput(result.roomCode);
+      if (roomId) {
+        void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
+      }
     },
     onError: (error: unknown) => {
-      const message = error instanceof Error ? error.message : "Could not join room";
-      setErrorMessage(message);
-    }
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not start room",
+      );
+    },
   });
 
-  const handleCreateRoom = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setErrorMessage(null);
-
-    createRoomMutation.mutate({
-      nickname: nickname.trim(),
-      preferredGenres,
-      blockedGenres,
-      providers
+  const handleRoomActionSuccess = (result: RoomActionResult) => {
+    setUserId(result.userId);
+    setRoomSession({
+      roomId: result.roomId,
+      roomCode: result.roomCode,
+      role: result.role,
     });
+    setErrorMessage(null);
+    void queryClient.invalidateQueries({ queryKey: ["room", result.roomId] });
   };
 
-  const handleJoinRoom = () => {
-    setErrorMessage(null);
+  const handleStartRoom = () => {
+    if (!roomId) {
+      return;
+    }
 
-    joinRoomMutation.mutate({
-      roomCode: roomCodeInput.trim().toUpperCase(),
-      nickname: nickname.trim(),
-      preferredGenres,
-      blockedGenres
-    });
+    setErrorMessage(null);
+    startRoomMutation.mutate({ roomId });
   };
 
-  const isBusy = createRoomMutation.isPending || joinRoomMutation.isPending;
-  const supabaseReady = Boolean(supabase);
-  const canSubmitCreate = supabaseReady && Boolean(nickname.trim()) && !isBusy;
-  const canSubmitJoin = supabaseReady && Boolean(nickname.trim()) && Boolean(roomCodeInput.trim()) && !isBusy;
+  const handleLeaveRoom = () => {
+    setErrorMessage(null);
+    clearRoomSession();
+  };
+
+  const roomSnapshot = roomSnapshotQuery.data;
+  const roomSnapshotError =
+    roomSnapshotQuery.error instanceof Error
+      ? roomSnapshotQuery.error.message
+      : null;
+  const showStartButton = role === "host" && roomSnapshot?.status === "lobby";
+  const lobbyModel: LobbyViewModel = {
+    roomCode,
+    roomSnapshot,
+    userId,
+    showStartButton,
+    isLoading: roomSnapshotQuery.isLoading,
+    errorMessage: roomSnapshotError,
+    startPending: startRoomMutation.isPending,
+    onStartRoom: handleStartRoom,
+    onLeaveRoom: handleLeaveRoom,
+  };
+
+  if (inRoom && roomSnapshot?.status === "active") {
+    if (!userId || !roomId) {
+      return (
+        <Container size="sm" py="xl">
+          <Alert color="red">
+            Missing room session. Please leave and rejoin the room.
+          </Alert>
+        </Container>
+      );
+    }
+
+    return (
+      <ActiveRoomContainer
+        roomId={roomId}
+        userId={userId}
+        onLeaveRoom={handleLeaveRoom}
+        onErrorChange={setErrorMessage}
+      />
+    );
+  }
+
+  if (inRoom && roomSnapshot?.status === "finished") {
+    if (!roomId) {
+      return (
+        <Container size="sm" py="xl">
+          <Alert color="red">
+            Missing room session. Please leave and rejoin the room.
+          </Alert>
+        </Container>
+      );
+    }
+
+    return (
+      <Container
+        size="md"
+        py={{ base: "lg", sm: "xl" }}
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          alignContent: "center",
+          width: "100%",
+        }}
+      >
+        <RoomResults
+          roomId={roomId}
+          roomCode={roomCode}
+          onLeaveRoom={handleLeaveRoom}
+        />
+      </Container>
+    );
+  }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center px-6 py-10">
-      <motion.section
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="rounded-3xl border border-[var(--mm-border)] bg-[var(--mm-surface)]/95 p-6 shadow-2xl shadow-blue-100 md:p-10"
-      >
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--mm-primary)]">Group Movie Night</p>
-        <h1 className="mt-3 text-4xl font-bold tracking-tight md:text-5xl">MovieMatcher</h1>
-        <p className="mt-3 max-w-2xl text-base text-[var(--mm-muted)] md:text-lg">
-          Swipe together, vote quickly, and let the room decide what everyone can watch.
-        </p>
+    <Container
+      size="md"
+      py={{ base: "lg", sm: "xl" }}
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        alignContent: "center",
+        width: "100%",
+      }}
+    >
+      {!inRoom ? (
+        <RoomOnboarding
+          nickname={nickname}
+          onNicknameChange={setNickname}
+          onRoomActionSuccess={handleRoomActionSuccess}
+          onErrorChange={setErrorMessage}
+        />
+      ) : null}
+      {inRoom && roomSnapshot?.status === "lobby" ? (
+        <LobbyView model={lobbyModel} />
+      ) : null}
 
-        <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleCreateRoom}>
-          <label className="flex flex-col gap-2 md:col-span-2">
-            <span className="text-sm font-medium text-slate-700">Nickname</span>
-            <input
-              value={nickname}
-              onChange={(event) => setNickname(event.target.value)}
-              placeholder="Your nickname"
-              className="h-11 rounded-xl border border-[var(--mm-border)] px-4 text-sm outline-none ring-[var(--mm-primary)] transition focus:ring-2"
-            />
-          </label>
-
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-slate-700">Liked genres (TMDB IDs, comma-separated)</span>
-            <input
-              value={preferredGenresInput}
-              onChange={(event) => setPreferredGenresInput(event.target.value)}
-              placeholder="28, 35"
-              className="h-11 rounded-xl border border-[var(--mm-border)] px-4 text-sm outline-none ring-[var(--mm-primary)] transition focus:ring-2"
-            />
-          </label>
-
-          <label className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-slate-700">Blocked genres (TMDB IDs, comma-separated)</span>
-            <input
-              value={blockedGenresInput}
-              onChange={(event) => setBlockedGenresInput(event.target.value)}
-              placeholder="27"
-              className="h-11 rounded-xl border border-[var(--mm-border)] px-4 text-sm outline-none ring-[var(--mm-primary)] transition focus:ring-2"
-            />
-          </label>
-
-          <label className="flex flex-col gap-2 md:col-span-2">
-            <span className="text-sm font-medium text-slate-700">Streaming providers (host only, comma-separated)</span>
-            <input
-              value={providersInput}
-              onChange={(event) => setProvidersInput(event.target.value)}
-              placeholder="netflix, amazon, hbo"
-              className="h-11 rounded-xl border border-[var(--mm-border)] px-4 text-sm outline-none ring-[var(--mm-primary)] transition focus:ring-2"
-            />
-          </label>
-
-          <div className="mt-2 flex flex-wrap gap-3 md:col-span-2">
-            <button
-              type="submit"
-              disabled={!canSubmitCreate}
-              className="h-11 rounded-xl bg-[var(--mm-primary)] px-6 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {createRoomMutation.isPending ? "Creating..." : "Create room"}
-            </button>
-
-              <button
-                type="button"
-                onClick={handleJoinRoom}
-                disabled={!canSubmitJoin}
-                className="h-11 rounded-xl bg-[var(--mm-accent)] px-6 text-sm font-semibold text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-              {joinRoomMutation.isPending ? "Joining..." : "Join room"}
-            </button>
-          </div>
-        </form>
-
-        <label className="mt-4 flex max-w-sm flex-col gap-2">
-          <span className="text-sm font-medium text-slate-700">Room code (join)</span>
-          <input
-            value={roomCodeInput}
-            onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
-            placeholder="ABCD12"
-            className="h-11 rounded-xl border border-[var(--mm-border)] px-4 text-sm uppercase outline-none ring-[var(--mm-accent)] transition focus:ring-2"
-            maxLength={6}
-          />
-        </label>
-
-        {errorMessage ? <p className="mt-4 text-sm font-medium text-red-600">{errorMessage}</p> : null}
-
-        <div className="mt-6 grid gap-1 text-xs text-slate-500">
-          <p>Supabase client: {supabaseReady ? "configured" : "missing environment variables"}</p>
-          <p>User session: {userId ?? "not initialized"}</p>
-          <p>Room: {(roomCode ?? roomCodeInput) || "none"}</p>
-          <p>Role: {role ?? "none"}</p>
-          <p>Room ID: {roomId ?? "none"}</p>
-        </div>
-      </motion.section>
-    </main>
+      {errorMessage ? <Alert color="red">{errorMessage}</Alert> : null}
+    </Container>
   );
 }
-
-export default App;
