@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Container, Paper, Stack, Title } from "@mantine/core";
 import type { RoomActionResult } from "@moviematcher/shared";
 import { ActiveRoomContainer } from "./components/active-room/ActiveRoomContainer";
+import { FinalVotingContainer } from "./components/final-voting/FinalVotingContainer";
 import { LobbyView, type LobbyViewModel } from "./components/lobby/LobbyView";
 import { RoomOnboarding } from "./components/onboarding/RoomOnboarding";
 import { RoomResults } from "./components/results/RoomResults";
@@ -173,7 +174,41 @@ export function App() {
         <RoomResults
           roomId={roomId}
           roomCode={roomCode}
+          role={role}
           onLeaveRoom={handleLeaveRoom}
+        />
+      </Container>
+    );
+  }
+
+  if (inRoom && roomSnapshot?.status === "final_voting") {
+    if (!userId || !roomId) {
+      return (
+        <Container size="sm" py="xl">
+          <Alert color="red">
+            Missing room session. Please leave and rejoin the room.
+          </Alert>
+        </Container>
+      );
+    }
+
+    return (
+      <Container
+        size="md"
+        py={{ base: "lg", sm: "xl" }}
+        style={{
+          minHeight: "100vh",
+          display: "grid",
+          alignContent: "center",
+          width: "100%"
+        }}
+      >
+        <FinalVotingContainer
+          roomId={roomId}
+          roomCode={roomCode}
+          userId={userId}
+          onLeaveRoom={handleLeaveRoom}
+          onErrorChange={setErrorMessage}
         />
       </Container>
     );
@@ -190,19 +225,26 @@ export function App() {
         width: "100%",
       }}
     >
-      {!inRoom ? (
-        <RoomOnboarding
-          nickname={nickname}
-          onNicknameChange={setNickname}
-          onRoomActionSuccess={handleRoomActionSuccess}
-          onErrorChange={setErrorMessage}
-        />
-      ) : null}
-      {inRoom && roomSnapshot?.status === "lobby" ? (
-        <LobbyView model={lobbyModel} />
-      ) : null}
+      <Paper shadow="xl" radius="xl" withBorder p={{ base: "md", sm: "xl" }}>
+        <Stack gap="md">
+          <Title order={1}>MovieMatcher</Title>
+          {!inRoom ? (
+            <RoomOnboarding
+              nickname={nickname}
+              onNicknameChange={setNickname}
+              onRoomActionSuccess={handleRoomActionSuccess}
+              onErrorChange={setErrorMessage}
+            />
+          ) : null}
+          {inRoom && roomSnapshot?.status === "lobby" ? (
+            <LobbyView model={lobbyModel} />
+          ) : null}
 
-      {errorMessage ? <Alert color="red">{errorMessage}</Alert> : null}
+          {errorMessage ? <Alert color="red">{errorMessage}</Alert> : null}
+        </Stack>
+      </Paper>
     </Container>
   );
 }
+
+export default App;

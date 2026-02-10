@@ -1,24 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MovieCandidate, VoteChoice } from "@moviematcher/shared";
 import { fetchMovieDetails } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
-import {
-  fetchRoomVotingSnapshot,
-  submitVote,
-  subscribeToVotingChanges,
-  toPosterUrl,
-} from "../../lib/voting";
+import { fetchRoomVotingSnapshot, submitVote, subscribeToVotingChanges, toPosterUrl } from "../../lib/voting";
 import type { ActiveRoomController, SwipeDecision } from "./ActiveRoomContext";
 import { ActiveRoomProvider } from "./ActiveRoomProvider";
 import { ActiveRoomView } from "./ActiveRoomView";
+import { candidateQueueReducer, PRELOAD_QUEUE_SIZE } from "./queue";
+import { rankCandidatesForUser } from "./recommendation";
+
+const VOTING_POLL_INTERVAL_MS = 2000;
 
 export function ActiveRoomContainer({
   roomId,
   userId,
   onLeaveRoom,
-  onErrorChange,
+  onErrorChange
 }: {
   roomId: string;
   userId: string;
@@ -28,24 +27,21 @@ export function ActiveRoomContainer({
   const [showHistory, setShowHistory] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
-  const [optimisticDecisions, setOptimisticDecisions] = useState<
-    Record<number, SwipeDecision>
-  >({});
+  const [optimisticDecisions, setOptimisticDecisions] = useState<Record<number, SwipeDecision>>({});
+  const [candidateQueue, dispatchCandidateQueue] = useReducer(candidateQueueReducer, []);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [cardExit, setCardExit] = useState<{
-    tmdbId: number;
-    direction: "left" | "right";
-    startX: number;
-  } | null>(null);
+  const [cardExit, setCardExit] = useState<{ tmdbId: number; direction: "left" | "right"; startX: number } | null>(null);
 
   const queryClient = useQueryClient();
   const swipeExitTimerRef = useRef<number | null>(null);
   const preloadedPosterUrlsRef = useRef<Set<string>>(new Set());
+  const previousLikesByMovieRef = useRef<Map<number, number>>(new Map());
 
   const votingSnapshotQuery = useQuery({
     queryKey: ["voting", roomId, userId],
-    queryFn: () => fetchRoomVotingSnapshot(roomId, userId),
-    enabled: Boolean(supabase),
+    queryFn: () => fetchRoomVotingSnapshot(roomId),
+    refetchInterval: VOTING_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: true
   });
 
   useEffect(() => {
@@ -54,9 +50,7 @@ export function ActiveRoomContainer({
     }
 
     return subscribeToVotingChanges(roomId, userId, () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["voting", roomId, userId],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["voting", roomId, userId] });
     });
   }, [roomId, userId, queryClient]);
 
@@ -65,16 +59,12 @@ export function ActiveRoomContainer({
     onSuccess: () => {
       onErrorChange(null);
       void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
-      void queryClient.invalidateQueries({
-        queryKey: ["voting", roomId, userId],
-      });
+      void queryClient.invalidateQueries({ queryKey: ["voting", roomId, userId] });
     },
     onError: (error: unknown) => {
       void queryClient.invalidateQueries({ queryKey: ["room", roomId] });
-      onErrorChange(
-        error instanceof Error ? error.message : "Could not submit vote",
-      );
-    },
+      onErrorChange(error instanceof Error ? error.message : "Could not submit vote");
+    }
   });
 
   const votingSnapshot = votingSnapshotQuery.data;
@@ -98,39 +88,115 @@ export function ActiveRoomContainer({
       .filter((candidate) => Boolean(reactionByMovie[candidate.tmdbId]))
       .map((candidate) => ({
         candidate,
-        reaction: reactionByMovie[candidate.tmdbId],
+        reaction: reactionByMovie[candidate.tmdbId]
       }));
   }, [reactionByMovie, votingSnapshot]);
 
-  const remainingCandidates = useMemo(
+  const rankedRemainingCandidates = useMemo(() => {
+    if (!votingSnapshot) {
+      return [];
+    }
+
+    return rankCandidatesForUser({
+      candidates: votingSnapshot.candidates,
+      reactionByMovie,
+      aggregates: votingSnapshot.aggregates,
+      preferenceProfile: votingSnapshot.preferenceProfile
+    });
+  }, [reactionByMovie, votingSnapshot]);
+
+  const rankedRemainingCandidateIds = useMemo(
+    () => rankedRemainingCandidates.map((candidate) => candidate.tmdbId),
+    [rankedRemainingCandidates]
+  );
+
+  const candidateByMovieId = useMemo(() => {
+    return new Map((votingSnapshot?.candidates ?? []).map((candidate) => [candidate.tmdbId, candidate]));
+  }, [votingSnapshot?.candidates]);
+
+  useEffect(() => {
+    if (!votingSnapshot) {
+      dispatchCandidateQueue({ type: "reset" });
+      previousLikesByMovieRef.current = new Map();
+      return;
+    }
+
+    dispatchCandidateQueue({
+      type: "reconcile",
+      rankedCandidateIds: rankedRemainingCandidateIds
+    });
+  }, [rankedRemainingCandidateIds, votingSnapshot]);
+
+  useEffect(() => {
+    if (!votingSnapshot) {
+      return;
+    }
+
+    const likeCountsByMovie = new Map(votingSnapshot.aggregates.map((aggregate) => [aggregate.tmdbId, aggregate.likes]));
+    const rankedCandidateIdSet = new Set(rankedRemainingCandidateIds);
+    const likedCandidateIds: number[] = [];
+
+    for (const aggregate of votingSnapshot.aggregates) {
+      const previousLikes = previousLikesByMovieRef.current.get(aggregate.tmdbId);
+      const gainedLikes = previousLikes !== undefined && aggregate.likes > previousLikes;
+      if (!gainedLikes) {
+        continue;
+      }
+
+      if (reactionByMovie[aggregate.tmdbId]) {
+        continue;
+      }
+
+      if (!rankedCandidateIdSet.has(aggregate.tmdbId)) {
+        continue;
+      }
+
+      likedCandidateIds.push(aggregate.tmdbId);
+    }
+
+    previousLikesByMovieRef.current = likeCountsByMovie;
+
+    if (!likedCandidateIds.length) {
+      return;
+    }
+
+    dispatchCandidateQueue({
+      type: "inject_likes",
+      likedCandidateIds,
+      likeCountsByMovie
+    });
+  }, [rankedRemainingCandidateIds, reactionByMovie, votingSnapshot]);
+
+  const queuedCandidates = useMemo(
     () =>
-      votingSnapshot?.candidates.filter(
-        (candidate) => !reactionByMovie[candidate.tmdbId],
-      ) ?? [],
-    [reactionByMovie, votingSnapshot],
+      candidateQueue
+        .map((tmdbId) => candidateByMovieId.get(tmdbId) ?? null)
+        .filter((candidate): candidate is MovieCandidate => Boolean(candidate)),
+    [candidateByMovieId, candidateQueue]
   );
 
-  const currentCandidate = remainingCandidates[0] ?? null;
-  const nextCandidate = remainingCandidates[1] ?? null;
+  const currentCandidate = queuedCandidates[0] ?? null;
+  const nextCandidate = queuedCandidates[1] ?? null;
 
-  const currentCandidatePoster = toPosterUrl(
-    currentCandidate?.posterPath ?? null,
-  );
+  const currentCandidatePoster = toPosterUrl(currentCandidate?.posterPath ?? null);
   const nextCandidatePoster = toPosterUrl(nextCandidate?.posterPath ?? null);
+  const preloadedQueuePosterUrls = useMemo(
+    () =>
+      queuedCandidates
+        .slice(1, PRELOAD_QUEUE_SIZE + 1)
+        .map((candidate) => toPosterUrl(candidate.posterPath))
+        .filter((posterUrl): posterUrl is string => Boolean(posterUrl)),
+    [queuedCandidates]
+  );
 
-  const activeCardExit =
-    currentCandidate && cardExit?.tmdbId === currentCandidate.tmdbId
-      ? cardExit
-      : null;
+  const activeCardExit = currentCandidate && cardExit?.tmdbId === currentCandidate.tmdbId ? cardExit : null;
   const cardIsExiting = Boolean(activeCardExit);
-  const dragRevealProgress = cardIsExiting
-    ? 1
-    : Math.min(1, Math.hypot(dragOffset.x, dragOffset.y) / 110);
+  const dragRevealProgress = cardIsExiting ? 1 : Math.min(1, Math.hypot(dragOffset.x, dragOffset.y) / 110);
 
   const movieDetailsQuery = useQuery({
     queryKey: ["movie-details", currentCandidate?.tmdbId],
     queryFn: () => fetchMovieDetails({ tmdbId: currentCandidate?.tmdbId ?? 0 }),
-    enabled: false,
+    enabled: false
   });
 
   useEffect(() => {
@@ -142,18 +208,16 @@ export function ActiveRoomContainer({
   }, [currentCandidate, movieDetailsQuery, showInfo]);
 
   useEffect(() => {
-    if (!nextCandidatePoster) {
-      return;
-    }
+    for (const posterUrl of preloadedQueuePosterUrls) {
+      if (preloadedPosterUrlsRef.current.has(posterUrl)) {
+        continue;
+      }
 
-    if (preloadedPosterUrlsRef.current.has(nextCandidatePoster)) {
-      return;
+      preloadedPosterUrlsRef.current.add(posterUrl);
+      const image = new Image();
+      image.src = posterUrl;
     }
-
-    preloadedPosterUrlsRef.current.add(nextCandidatePoster);
-    const image = new Image();
-    image.src = nextCandidatePoster;
-  }, [nextCandidatePoster]);
+  }, [preloadedQueuePosterUrls]);
 
   useEffect(() => {
     return () => {
@@ -163,25 +227,20 @@ export function ActiveRoomContainer({
     };
   }, []);
 
-  const commitMovieDecision = (
-    candidate: MovieCandidate,
-    decision: SwipeDecision,
-  ) => {
+  const commitMovieDecision = (candidate: MovieCandidate, decision: SwipeDecision) => {
     if (cardIsExiting) {
       return;
     }
 
-    setOptimisticDecisions((prev) => ({
-      ...prev,
-      [candidate.tmdbId]: decision,
-    }));
+    dispatchCandidateQueue({ type: "remove", tmdbId: candidate.tmdbId });
+    setOptimisticDecisions((prev) => ({ ...prev, [candidate.tmdbId]: decision }));
 
     voteMutation.mutate(
       {
         roomId,
         userId,
         tmdbId: candidate.tmdbId,
-        vote: decision,
+        vote: decision
       },
       {
         onError: () => {
@@ -194,8 +253,9 @@ export function ActiveRoomContainer({
             delete next[candidate.tmdbId];
             return next;
           });
-        },
-      },
+          dispatchCandidateQueue({ type: "prepend", tmdbId: candidate.tmdbId });
+        }
+      }
     );
   };
 
@@ -208,6 +268,8 @@ export function ActiveRoomContainer({
       window.clearTimeout(swipeExitTimerRef.current);
       swipeExitTimerRef.current = null;
     }
+
+    setDragOffset({ x: 0, y: 0 });
 
     const direction = decision === "like" ? "right" : "left";
     setCardExit({ tmdbId: currentCandidate.tmdbId, direction, startX });
@@ -271,10 +333,7 @@ export function ActiveRoomContainer({
 
   const controller: ActiveRoomController = {
     votingLoading: votingSnapshotQuery.isLoading,
-    votingErrorMessage:
-      votingSnapshotQuery.error instanceof Error
-        ? votingSnapshotQuery.error.message
-        : null,
+    votingErrorMessage: votingSnapshotQuery.error instanceof Error ? votingSnapshotQuery.error.message : null,
     currentCandidate,
     currentCandidatePoster,
     nextCandidate,
@@ -290,13 +349,9 @@ export function ActiveRoomContainer({
     showMenu,
     showInfo,
     historyItems,
-    movieInfoTitle:
-      movieDetailsQuery.data?.title ?? currentCandidate?.title ?? "Movie info",
+    movieInfoTitle: movieDetailsQuery.data?.title ?? currentCandidate?.title ?? "Movie info",
     movieDetailsLoading: movieDetailsQuery.isLoading,
-    movieDetailsError:
-      movieDetailsQuery.error instanceof Error
-        ? movieDetailsQuery.error.message
-        : null,
+    movieDetailsError: movieDetailsQuery.error instanceof Error ? movieDetailsQuery.error.message : null,
     movieDetailsData: movieDetailsQuery.data,
     onDragEnd: handleDragEnd,
     onDragMove: handleDragMove,
@@ -314,7 +369,7 @@ export function ActiveRoomContainer({
         commitMovieDecision(currentCandidate, "skip");
       }
     },
-    onLeaveRoom: handleLeaveRoom,
+    onLeaveRoom: handleLeaveRoom
   };
 
   return (
@@ -323,3 +378,5 @@ export function ActiveRoomContainer({
     </ActiveRoomProvider>
   );
 }
+
+export default ActiveRoomContainer;

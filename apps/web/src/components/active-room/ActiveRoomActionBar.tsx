@@ -18,43 +18,48 @@ export function ActiveRoomActionBar() {
         size="md"
         color="red"
         variant="light"
-        leftSection={<IconThumbDown size={16} />}
+        aria-label="Dislike"
+        title="Dislike"
         onClick={controller.onDislike}
         disabled={actionDisabled}
       >
-        Dislike
+        <IconThumbDown size={18} />
       </Button>
 
       <Button
         size="md"
         color="yellow"
         variant="light"
-        leftSection={<IconInfoCircle size={16} />}
+        aria-label="Info"
+        title="Info"
         onClick={controller.onOpenInfo}
         disabled={!controller.currentCandidate || controller.cardIsExiting}
       >
-        Info
+        <IconInfoCircle size={18} />
       </Button>
 
       <Button
         size="md"
         color="green"
         variant="light"
-        leftSection={<IconThumbUp size={16} />}
+        aria-label="Like"
+        title="Like"
         onClick={controller.onLike}
         disabled={actionDisabled}
       >
-        Like
+        <IconThumbUp size={18} />
       </Button>
 
       <Button
         size="md"
         color="gray"
         variant="light"
+        aria-label="Skip"
+        title="Skip"
         onClick={controller.onSkip}
         disabled={actionDisabled}
       >
-        <IconPlayerSkipForward size={16} />
+        <IconPlayerSkipForward size={18} />
       </Button>
     </Group>
   );

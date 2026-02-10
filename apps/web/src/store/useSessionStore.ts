@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { withDevSessionScope } from "../lib/devSession";
 
 interface SessionState {
   nickname: string;
@@ -27,7 +28,7 @@ export const useSessionStore = create<SessionState>()(
       clearRoomSession: () => set({ roomId: null, roomCode: null, role: null })
     }),
     {
-      name: "mm-session"
+      name: withDevSessionScope("mm-session")
     }
   )
 );

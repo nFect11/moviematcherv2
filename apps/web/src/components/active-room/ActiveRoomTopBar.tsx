@@ -10,10 +10,11 @@ export function ActiveRoomTopBar() {
       <Button
         variant="light"
         color="gray"
-        leftSection={<IconHistory size={16} />}
+        aria-label="History"
+        title="History"
         onClick={controller.onOpenHistory}
       >
-        History
+        <IconHistory size={16} />
       </Button>
 
       <Text size="sm" fw={700} c="gray.2">
@@ -23,10 +24,11 @@ export function ActiveRoomTopBar() {
       <Button
         variant="light"
         color="gray"
-        rightSection={<IconMenu2 size={16} />}
+        aria-label="Menu"
+        title="Menu"
         onClick={controller.onOpenMenu}
       >
-        Menu
+        <IconMenu2 size={16} />
       </Button>
     </Group>
   );

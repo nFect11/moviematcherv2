@@ -34,7 +34,28 @@ npm run dev          # Start web app
 npm run build        # Build web app
 npm run test         # Unit tests (Vitest)
 npm run test:e2e     # E2E tests (Playwright)
+npm run simulate:room # Multi-user simulator (Playwright + Netlify dev)
 ```
+
+## Developer multi-user simulator
+
+Two ways to simulate multiple users locally:
+
+1. URL-scoped sessions (manual)
+- Open multiple tabs/windows with different query params:
+  - `http://localhost:8888/?dev_session=host`
+  - `http://localhost:8888/?dev_session=u1`
+  - `http://localhost:8888/?dev_session=u2`
+- Each `dev_session` value gets an isolated persisted session store.
+
+2. Automated Playwright simulator
+- Run:
+  - `npm run simulate:room`
+- For visual debugging:
+  - `RUN_MULTI_USER_SIM=1 playwright test tests/e2e/multi-user-simulator.spec.ts --headed`
+- Optional tuning:
+  - `SIM_USER_COUNT=4 SIM_DECISIONS=10 npm run simulate:room`
+- This uses separate browser contexts to create host + joiners, start room, and run several decisions.
 
 ## Current milestone
 

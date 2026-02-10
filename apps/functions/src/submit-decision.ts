@@ -81,6 +81,10 @@ export const handler = async (event: NetlifyEvent) => {
       return json(404, { error: "Room not found" });
     }
 
+    if (room.status === "final_voting") {
+      return json(409, { error: "Room moved to final voting" });
+    }
+
     if (room.status !== "active") {
       return json(409, { error: "Room is not active" });
     }

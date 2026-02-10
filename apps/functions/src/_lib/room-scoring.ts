@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 interface RoomRow {
   id: string;
-  status: "lobby" | "active" | "finished";
+  status: "lobby" | "active" | "final_voting" | "finished";
 }
 
 interface CandidateMetadataSnapshot {
@@ -68,7 +68,7 @@ interface RankedMovieResult {
 
 interface FinalizeRoomResult {
   finished: boolean;
-  status: "active" | "finished";
+  status: "active" | "final_voting" | "finished";
   winnerTmdbId: number | null;
   reason: string | null;
 }
@@ -85,7 +85,13 @@ const SCORE_CONFIG = {
   consensusBonus: 1.4,
   unanimousBonus: 2.2,
   earlyWinRatio: 0.72,
-  topResultsLimit: 5
+  topResultsLimit: 3
+} as const;
+
+const FINAL_VOTE_CONFIG = {
+  contendersRequired: 3,
+  obviousLikeRatio: 0.8,
+  minimumCoverageRatio: 0.8
 } as const;
 
 function round(value: number, precision = 4) {
@@ -235,47 +241,81 @@ function evaluateRanking(candidates: CandidateRow[], votes: VoteRow[], memberCou
   return ranked;
 }
 
-function shouldFinishRoom(ranked: RankedMovieResult[], memberCount: number) {
-  if (!ranked.length || memberCount <= 0) {
-    return { shouldFinish: false, reason: null as string | null };
+function toPersistedResults(ranked: RankedMovieResult[], roomId: string, decidedAt: string) {
+  return ranked.slice(0, SCORE_CONFIG.topResultsLimit).map((entry) => ({
+    room_id: roomId,
+    tmdb_id: entry.tmdbId,
+    score_breakdown: entry.scoreBreakdown,
+    decided_at: decidedAt
+  }));
+}
+
+function qualifiesAsObviousWinner(entry: RankedMovieResult, memberCount: number) {
+  if (memberCount <= 0) {
+    return false;
   }
 
-  const top = ranked[0];
+  const minimumCoverageCount = Math.max(1, Math.ceil(memberCount * FINAL_VOTE_CONFIG.minimumCoverageRatio));
+  const hasEnoughCoverage = entry.decidedCount >= minimumCoverageCount;
+  if (!hasEnoughCoverage) {
+    return false;
+  }
+
+  const likeRatio = entry.scoreBreakdown.likeRatio;
+  return likeRatio === 1 || likeRatio >= FINAL_VOTE_CONFIG.obviousLikeRatio;
+}
+
+function resolveContendersForFinalVote(ranked: RankedMovieResult[], memberCount: number) {
+  if (!ranked.length) {
+    return null;
+  }
+
+  const obviousWinners = ranked.filter((entry) => qualifiesAsObviousWinner(entry, memberCount));
+  if (obviousWinners.length >= FINAL_VOTE_CONFIG.contendersRequired) {
+    return {
+      contenders: obviousWinners.slice(0, FINAL_VOTE_CONFIG.contendersRequired),
+      reason: "obvious_winners_reached"
+    };
+  }
+
   const allDecided = ranked.every((candidate) => candidate.decidedCount === memberCount);
-
-  // Single-user sessions are usually exploratory during development and
-  // should not terminate after the first decision.
-  if (memberCount === 1) {
-    if (allDecided) {
-      return { shouldFinish: true, reason: "all_candidates_decided" };
-    }
-
-    return { shouldFinish: false, reason: null as string | null };
+  if (allDecided && ranked.length >= FINAL_VOTE_CONFIG.contendersRequired) {
+    return {
+      contenders: ranked.slice(0, FINAL_VOTE_CONFIG.contendersRequired),
+      reason: "all_candidates_decided_fallback"
+    };
   }
 
-  const unanimousWinner = top.decidedCount === memberCount && top.likes === memberCount;
-  if (unanimousWinner) {
-    return { shouldFinish: true, reason: "unanimous_consensus" };
-  }
+  return null;
+}
 
-  const consensusWinner =
-    top.decidedCount === memberCount && top.likes >= Math.ceil(memberCount * SCORE_CONFIG.earlyWinRatio);
-  if (consensusWinner) {
-    return { shouldFinish: true, reason: "consensus_threshold" };
-  }
+async function insertRoomEvent({
+  supabase,
+  roomId,
+  type,
+  payload
+}: {
+  supabase: SupabaseClient;
+  roomId: string;
+  type: string;
+  payload: Record<string, unknown>;
+}) {
+  const { data: lastEvent } = await supabase
+    .from("room_events")
+    .select("seq")
+    .eq("room_id", roomId)
+    .order("seq", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  const topIsUnbeatable =
-    top.decidedCount === memberCount &&
-    ranked.slice(1).every((candidate) => top.baseScore > candidate.maxPotentialBaseScore);
-  if (topIsUnbeatable) {
-    return { shouldFinish: true, reason: "unbeatable_leader" };
-  }
+  const nextSeq = (lastEvent?.seq ?? 0) + 1;
 
-  if (allDecided) {
-    return { shouldFinish: true, reason: "all_candidates_decided" };
-  }
-
-  return { shouldFinish: false, reason: null as string | null };
+  await supabase.from("room_events").insert({
+    room_id: roomId,
+    type,
+    payload,
+    seq: nextSeq
+  });
 }
 
 export async function evaluateAndFinalizeRoom(
@@ -294,12 +334,16 @@ export async function evaluateAndFinalizeRoom(
   }
 
   if (room.status === "finished") {
-    const { data: existingResults } = await supabase
+    const [{ data: finalChoice }, { data: existingResults }] = await Promise.all([
+      supabase.from("room_final_choices").select("tmdb_id").eq("room_id", roomId).maybeSingle(),
+      supabase
       .from("room_results")
       .select("tmdb_id,score_breakdown")
-      .eq("room_id", roomId);
+      .eq("room_id", roomId)
+    ]);
 
     const winnerTmdbId =
+      finalChoice?.tmdb_id ??
       existingResults
         ?.find((entry) => Number((entry.score_breakdown as { rank?: number } | null)?.rank) === 1)
         ?.tmdb_id ?? null;
@@ -309,6 +353,15 @@ export async function evaluateAndFinalizeRoom(
       status: "finished",
       winnerTmdbId,
       reason: "already_finished"
+    };
+  }
+
+  if (room.status === "final_voting") {
+    return {
+      finished: false,
+      status: "final_voting",
+      winnerTmdbId: null,
+      reason: null
     };
   }
 
@@ -347,9 +400,7 @@ export async function evaluateAndFinalizeRoom(
 
   const memberCount = members?.length ?? 0;
   const ranked = evaluateRanking(candidates ?? [], votes ?? [], memberCount);
-
-  const finishDecision = shouldFinishRoom(ranked, memberCount);
-  if (!finishDecision.shouldFinish || !ranked.length) {
+  if (!ranked.length) {
     return {
       finished: false,
       status: "active",
@@ -359,12 +410,17 @@ export async function evaluateAndFinalizeRoom(
   }
 
   const decidedAt = new Date().toISOString();
-  const resultsToPersist = ranked.slice(0, SCORE_CONFIG.topResultsLimit).map((entry) => ({
-    room_id: roomId,
-    tmdb_id: entry.tmdbId,
-    score_breakdown: entry.scoreBreakdown,
-    decided_at: decidedAt
-  }));
+  const contendersDecision = resolveContendersForFinalVote(ranked, memberCount);
+  if (!contendersDecision) {
+    return {
+      finished: false,
+      status: "active",
+      winnerTmdbId: null,
+      reason: null
+    };
+  }
+
+  const resultsToPersist = toPersistedResults(ranked, roomId, decidedAt);
 
   const { error: upsertResultsError } = await supabase.from("room_results").upsert(resultsToPersist, {
     onConflict: "room_id,tmdb_id"
@@ -373,53 +429,81 @@ export async function evaluateAndFinalizeRoom(
     throw new Error(upsertResultsError.message);
   }
 
-  const { error: finishRoomError } = await supabase
+  const contendersToPersist = contendersDecision.contenders.map((entry, index) => ({
+    room_id: roomId,
+    tmdb_id: entry.tmdbId,
+    rank: index + 1,
+    score_breakdown: entry.scoreBreakdown,
+    qualification_reason: contendersDecision.reason
+  }));
+
+  const { error: clearContendersError } = await supabase.from("room_final_contenders").delete().eq("room_id", roomId);
+  if (clearContendersError) {
+    throw new Error(clearContendersError.message);
+  }
+
+  const { error: upsertContendersError } = await supabase.from("room_final_contenders").upsert(contendersToPersist, {
+    onConflict: "room_id,tmdb_id"
+  });
+  if (upsertContendersError) {
+    throw new Error(upsertContendersError.message);
+  }
+
+  const { error: clearVotesError } = await supabase.from("room_result_votes").delete().eq("room_id", roomId);
+  if (clearVotesError) {
+    throw new Error(clearVotesError.message);
+  }
+
+  const { error: clearFinalChoiceError } = await supabase.from("room_final_choices").delete().eq("room_id", roomId);
+  if (clearFinalChoiceError) {
+    throw new Error(clearFinalChoiceError.message);
+  }
+
+  const { error: transitionRoomError } = await supabase
     .from("rooms")
     .update({
-      status: "finished",
-      ended_at: decidedAt
+      status: "final_voting"
     })
     .eq("id", roomId)
     .eq("status", "active");
 
-  if (finishRoomError) {
-    throw new Error(finishRoomError.message);
+  if (transitionRoomError) {
+    throw new Error(transitionRoomError.message);
   }
 
   try {
-    const { data: lastEvent } = await supabase
-      .from("room_events")
-      .select("seq")
-      .eq("room_id", roomId)
-      .order("seq", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const nextSeq = (lastEvent?.seq ?? 0) + 1;
-
-    await supabase.from("room_events").insert({
-      room_id: roomId,
-      type: "room_finished",
+    await insertRoomEvent({
+      supabase,
+      roomId,
+      type: "final_contenders_locked",
       payload: {
-        reason: finishDecision.reason,
-        winner_tmdb_id: ranked[0].tmdbId,
+        reason: contendersDecision.reason,
         triggered_by: triggeredBy,
-        ranked_results: resultsToPersist.map((result) => ({
-          tmdb_id: result.tmdb_id,
-          rank: (result.score_breakdown as RankedScoreBreakdown).rank,
-          score: (result.score_breakdown as RankedScoreBreakdown).score
+        contenders: contendersToPersist.map((entry) => ({
+          tmdb_id: entry.tmdb_id,
+          rank: entry.rank,
+          score: (entry.score_breakdown as RankedScoreBreakdown).score
         }))
-      },
-      seq: nextSeq
+      }
+    });
+
+    await insertRoomEvent({
+      supabase,
+      roomId,
+      type: "final_vote_started",
+      payload: {
+        contender_count: contendersToPersist.length,
+        triggered_by: triggeredBy
+      }
     });
   } catch (error) {
     console.warn("room-scoring: event insert failed", error);
   }
 
   return {
-    finished: true,
-    status: "finished",
-    winnerTmdbId: ranked[0].tmdbId,
-    reason: finishDecision.reason
+    finished: false,
+    status: "final_voting",
+    winnerTmdbId: null,
+    reason: contendersDecision.reason
   };
 }

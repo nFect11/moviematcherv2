@@ -1,5 +1,6 @@
 export type VoteChoice = "like" | "dislike" | "skip";
-export type RoomStatus = "lobby" | "active" | "finished";
+export type RoomStatus = "lobby" | "active" | "final_voting" | "finished";
+export type FinalResolutionMethod = "secret_vote" | "wheel";
 
 export interface RoomCreateInput {
   nickname: string;
@@ -68,9 +69,28 @@ export interface UserVote {
   decidedAt: string;
 }
 
+export interface RoomVotingSnapshotInput {
+  roomId: string;
+}
+
+export interface RoomVotingAggregate {
+  tmdbId: number;
+  likes: number;
+  dislikes: number;
+  skips: number;
+  totalDecisions: number;
+}
+
+export interface UserPreferenceProfile {
+  likedGenres: number[];
+  dislikedGenres: number[];
+}
+
 export interface RoomVotingSnapshot {
   candidates: MovieCandidate[];
   userVotes: UserVote[];
+  aggregates: RoomVotingAggregate[];
+  preferenceProfile: UserPreferenceProfile;
 }
 
 export interface SubmitDecisionInput {
@@ -117,7 +137,47 @@ export interface RoomResult {
 
 export interface RoomResultsSnapshot {
   winnerTmdbId: number | null;
+  resolutionMethod: FinalResolutionMethod | null;
+  tieBreakUsed: boolean;
   results: RoomResult[];
+}
+
+export interface FinalVoteSnapshotInput {
+  roomId: string;
+}
+
+export interface SubmitFinalVoteInput {
+  roomId: string;
+  tmdbId: number;
+}
+
+export interface FinalVoteContender {
+  tmdbId: number;
+  rank: number;
+  scoreBreakdown: RoomResultScoreBreakdown;
+}
+
+export interface FinalVoteSnapshot {
+  roomId: string;
+  status: RoomStatus;
+  contenders: FinalVoteContender[];
+  totalVoters: number;
+  votesSubmitted: number;
+  hasVoted: boolean;
+  selectedTmdbId: number | null;
+  votingComplete: boolean;
+  winnerTmdbId: number | null;
+  resolutionMethod: FinalResolutionMethod | null;
+  tieBreakUsed: boolean;
+}
+
+export interface SubmitFinalVoteResult {
+  roomId: string;
+  status: RoomStatus;
+  finished: boolean;
+  votesSubmitted: number;
+  totalVoters: number;
+  winnerTmdbId: number | null;
 }
 
 export interface MovieDetailsInput {

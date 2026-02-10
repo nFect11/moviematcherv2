@@ -8,6 +8,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { IconCrown, IconUser, IconWifi, IconWifiOff } from "@tabler/icons-react";
 import type { RoomSnapshot } from "@moviematcher/shared";
 
 export type LobbyViewModel = {
@@ -32,9 +33,9 @@ export function LobbyView({ model }: { model: LobbyViewModel }) {
       bg="blue.0"
     >
       <Group justify="space-between" align="center" wrap="wrap">
-        <Title order={3}>Lobby</Title>
+        <Title order={3}>🍿 Lobby</Title>
         <Badge size="lg" variant="light" color="blue">
-          {model.roomCode}
+          🎟️ {model.roomCode}
         </Badge>
       </Group>
 
@@ -68,10 +69,20 @@ export function LobbyView({ model }: { model: LobbyViewModel }) {
                     {member.nickname}
                     {isSelf ? " (You)" : ""}
                   </Text>
-                  <Text size="xs" c="dimmed">
-                    {isHost ? "Host" : "Member"} •{" "}
-                    {member.connected ? "Online" : "Offline"}
-                  </Text>
+                  <Group gap={8} wrap="nowrap">
+                    <Group gap={4} wrap="nowrap">
+                      {isHost ? <IconCrown size={12} color="#f59f00" /> : <IconUser size={12} color="#868e96" />}
+                      <Text size="xs" c="dimmed">
+                        {isHost ? "Host" : "Member"}
+                      </Text>
+                    </Group>
+                    <Group gap={4} wrap="nowrap">
+                      {member.connected ? <IconWifi size={12} color="#40c057" /> : <IconWifiOff size={12} color="#fa5252" />}
+                      <Text size="xs" c="dimmed">
+                        {member.connected ? "Online" : "Offline"}
+                      </Text>
+                    </Group>
+                  </Group>
                 </Group>
               </Paper>
             </List.Item>

@@ -1,7 +1,13 @@
 import type {
+  FinalVoteSnapshot,
+  FinalVoteSnapshotInput,
   MovieDetails,
   MovieDetailsInput,
+  RoomVotingSnapshot,
+  RoomVotingSnapshotInput,
   SubmitDecisionInput,
+  SubmitFinalVoteInput,
+  SubmitFinalVoteResult,
   SubmitDecisionResult,
   RoomActionResult,
   RoomCreateInput,
@@ -61,4 +67,16 @@ export function fetchMovieDetails(payload: MovieDetailsInput) {
 
 export function submitDecision(payload: SubmitDecisionInput) {
   return postFunction<SubmitDecisionInput, SubmitDecisionResult>("submit-decision", payload);
+}
+
+export function fetchVotingSnapshot(payload: RoomVotingSnapshotInput) {
+  return postFunction<RoomVotingSnapshotInput, RoomVotingSnapshot>("voting-snapshot", payload);
+}
+
+export function fetchFinalVoteSnapshot(payload: FinalVoteSnapshotInput) {
+  return postFunction<FinalVoteSnapshotInput, FinalVoteSnapshot>("final-vote-snapshot", payload);
+}
+
+export function submitFinalVote(payload: SubmitFinalVoteInput) {
+  return postFunction<SubmitFinalVoteInput, SubmitFinalVoteResult>("submit-final-vote", payload);
 }
