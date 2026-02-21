@@ -18,7 +18,9 @@
     "simulate:room": "RUN_MULTI_USER_SIM=1 playwright test tests/e2e/multi-user-simulator.spec.ts"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "@playwright/test": "^1.54.2"
+    "@playwright/test": "^1.54.2",
+    "@types/jest": "^30.0.0",
+    "jest-dom": "^4.0.0",
+    "typescript": "^5.9.3"
   }
 }

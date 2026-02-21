@@ -133,6 +133,8 @@ export interface RoomResult {
   tmdbId: number;
   decidedAt: string;
   scoreBreakdown: RoomResultScoreBreakdown;
+  voters: string[];
+  finalVoteCount: number;
 }
 
 export interface RoomResultsSnapshot {

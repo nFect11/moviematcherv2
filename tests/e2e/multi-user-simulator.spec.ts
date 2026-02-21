@@ -95,17 +95,20 @@ test.describe("multi-user simulator", () => {
 });
 
 async function createRoomAsHost(page: Page, nickname: string) {
+  await page.getByRole("button", { name: "Create a room" }).click();
   await page.getByLabel("Nickname").fill(nickname);
-  await page.getByRole("button", { name: "Create room" }).click();
+  await page.getByRole("button", { name: "Create a room" }).nth(1).click();
 
   await completePreferences(page, "create");
   await expect(page.getByRole("heading", { name: "Lobby" })).toBeVisible({ timeout: 20_000 });
 }
 
 async function joinRoomAsMember(page: Page, nickname: string, roomCode: string) {
-  await page.getByLabel("Nickname").fill(nickname);
-  await page.getByLabel("Room code").fill(roomCode);
   await page.getByRole("button", { name: /^Join room$/ }).first().click();
+  await page.getByLabel("Nickname").fill(nickname);
+  await page.locator("input[data-pin-input]").first().click();
+  await page.keyboard.type(roomCode);
+  await page.getByRole("button", { name: /^Join room$/ }).nth(1).click();
 
   await completePreferences(page, "join");
   await expect(page.getByRole("heading", { name: "Lobby" })).toBeVisible({ timeout: 20_000 });

@@ -6,15 +6,16 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
 
-  --mm-bg-start: #f6f9ff;
-  --mm-bg-end: #d8e6ff;
-  --mm-surface: #ffffff;
-  --mm-primary: #1f4fd1;
-  --mm-accent: #ff7a18;
-  --mm-text: #0f172a;
-  --mm-muted: #475569;
-  --mm-border: #dbe5f8;
+  --mm-bg-start: #0b1020;
+  --mm-bg-end: #05070d;
+  --mm-surface: #0f1528;
+  --mm-primary: #ff922b;
+  --mm-accent: #fab005;
+  --mm-text: #edf2ff;
+  --mm-muted: #9aa8cf;
+  --mm-border: #232d4b;
 }
 
 * {
@@ -26,7 +27,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   color: var(--mm-text);
-  background: radial-gradient(circle at 10% 10%, #ffffff 0%, var(--mm-bg-start) 40%, var(--mm-bg-end) 100%);
+  background: radial-gradient(circle at 12% 8%, #1a2444 0%, var(--mm-bg-start) 35%, var(--mm-bg-end) 100%);
 }
 
 #root {

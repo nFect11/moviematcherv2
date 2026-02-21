@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Container, Paper, Stack, Title } from "@mantine/core";
+import { Alert, Container, Paper, Stack } from "@mantine/core";
 import type { RoomActionResult } from "@moviematcher/shared";
 import { ActiveRoomContainer } from "./components/active-room/ActiveRoomContainer";
 import { FinalVotingContainer } from "./components/final-voting/FinalVotingContainer";
@@ -161,23 +161,12 @@ export function App() {
     }
 
     return (
-      <Container
-        size="md"
-        py={{ base: "lg", sm: "xl" }}
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          alignContent: "center",
-          width: "100%",
-        }}
-      >
-        <RoomResults
-          roomId={roomId}
-          roomCode={roomCode}
-          role={role}
-          onLeaveRoom={handleLeaveRoom}
-        />
-      </Container>
+      <RoomResults
+        roomId={roomId}
+        roomCode={roomCode}
+        role={role}
+        onLeaveRoom={handleLeaveRoom}
+      />
     );
   }
 
@@ -200,7 +189,7 @@ export function App() {
           minHeight: "100vh",
           display: "grid",
           alignContent: "center",
-          width: "100%"
+          width: "100%",
         }}
       >
         <FinalVotingContainer
@@ -227,7 +216,6 @@ export function App() {
     >
       <Paper shadow="xl" radius="xl" withBorder p={{ base: "md", sm: "xl" }}>
         <Stack gap="md">
-          <Title order={1}>MovieMatcher</Title>
           {!inRoom ? (
             <RoomOnboarding
               nickname={nickname}

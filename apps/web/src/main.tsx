@@ -17,7 +17,7 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <MantineProvider defaultColorScheme="light">
+    <MantineProvider defaultColorScheme="dark" theme={{ primaryColor: "orange" }}>
       <QueryClientProvider client={queryClient}>
         <App />
       </QueryClientProvider>

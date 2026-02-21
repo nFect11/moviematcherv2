@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MantineProvider } from "@mantine/core";
 import App from "./App";
 import { useSessionStore } from "./store/useSessionStore";
+import "@testing-library/jest-dom";
 
 describe("App", () => {
   it("renders primary room actions", () => {
@@ -12,7 +13,7 @@ describe("App", () => {
       userId: null,
       roomId: null,
       roomCode: null,
-      role: null
+      role: null,
     });
 
     const queryClient = new QueryClient();
@@ -22,11 +23,12 @@ describe("App", () => {
         <QueryClientProvider client={queryClient}>
           <App />
         </QueryClientProvider>
-      </MantineProvider>
+      </MantineProvider>,
     );
 
-    expect(screen.getByRole("heading", { name: "MovieMatcher" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create room" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Join room" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Create a room" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Join room" }).length).toBeGreaterThan(0);
   });
 });
