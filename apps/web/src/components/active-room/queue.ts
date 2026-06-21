@@ -75,6 +75,11 @@ export type CandidateQueueAction =
       likeCountsByMovie: Map<number, number>;
     }
   | {
+      type: "inject_batch";
+      tmdbIds: number[];
+      startIndex: number;
+    }
+  | {
       type: "remove";
       tmdbId: number;
     }
@@ -98,6 +103,26 @@ export function candidateQueueReducer(queue: number[], action: CandidateQueueAct
       likedCandidateIds: action.likedCandidateIds,
       likeCountsByMovie: action.likeCountsByMovie
     });
+  }
+
+  if (action.type === "inject_batch") {
+    let nextQueue = queue;
+    const existing = new Set(nextQueue);
+    let insertIndex = Math.min(nextQueue.length, action.startIndex);
+
+    for (const tmdbId of action.tmdbIds) {
+      if (existing.has(tmdbId)) {
+        continue;
+      }
+
+      existing.add(tmdbId);
+      const before = nextQueue.slice(0, insertIndex);
+      const after = nextQueue.slice(insertIndex);
+      nextQueue = [...before, tmdbId, ...after];
+      insertIndex += 1;
+    }
+
+    return arraysEqual(queue, nextQueue) ? queue : nextQueue;
   }
 
   if (action.type === "remove") {

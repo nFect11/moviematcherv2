@@ -21,6 +21,15 @@ export interface RoomUpdatePreferencesInput {
   country?: string;
 }
 
+export interface RefetchCandidatesInput {
+  roomId: string;
+}
+
+export interface RefetchCandidatesResult {
+  newTmdbIds: number[];
+  reason: string | null;
+}
+
 export interface RoomActionResult {
   roomId: string;
   roomCode: string;
@@ -64,8 +73,12 @@ export interface MovieCandidate {
   posterPath: string | null;
   releaseDate: string | null;
   voteAverage: number;
+  voteCount: number;
   genreIds: number[];
   roundIndex: number;
+  runtime: number | null;
+  language: string | null;
+  popularity: number;
 }
 
 export interface UserVote {

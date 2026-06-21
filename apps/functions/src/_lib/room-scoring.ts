@@ -12,6 +12,10 @@ interface CandidateMetadataSnapshot {
   poster_path?: string | null;
   release_date?: string | null;
   vote_average?: number;
+  vote_count?: number;
+  popularity?: number;
+  original_language?: string;
+  runtime?: number | null;
 }
 
 interface CandidateRow {
@@ -85,7 +89,10 @@ const SCORE_CONFIG = {
   consensusBonus: 1.4,
   unanimousBonus: 2.2,
   earlyWinRatio: 0.72,
-  topResultsLimit: 3
+  topResultsLimit: 3,
+  recencyWeight: 0.12,
+  popularityWeight: 0.08,
+  voteCountWeight: 0.06
 } as const;
 
 const FINAL_VOTE_CONFIG = {
@@ -105,6 +112,48 @@ function normalizeVoteAverage(value: number) {
   }
 
   return Math.max(0, Math.min(10, value)) / 10;
+}
+
+function computeRecencyScore(releaseDate: string | null | undefined) {
+  if (!releaseDate) {
+    return 0.5;
+  }
+
+  const year = Number(releaseDate.slice(0, 4));
+  if (!Number.isFinite(year)) {
+    return 0.5;
+  }
+
+  const age = new Date().getFullYear() - year;
+  if (age <= 2) {
+    return 1.0;
+  }
+
+  if (age <= 5) {
+    return 0.8;
+  }
+
+  if (age <= 10) {
+    return 0.5;
+  }
+
+  return 0.2;
+}
+
+function normalizePopularity(popularity: number | undefined) {
+  if (!Number.isFinite(popularity)) {
+    return 0;
+  }
+
+  return Math.min((popularity as number) / 1000, 1);
+}
+
+function normalizeVoteCount(voteCount: number | undefined) {
+  if (!Number.isFinite(voteCount) || (voteCount as number) <= 0) {
+    return 0;
+  }
+
+  return Math.min(Math.log(voteCount as number) / Math.log(10000), 1);
 }
 
 function toScoreMetadata(snapshot: CandidateMetadataSnapshot | null | undefined) {
@@ -170,6 +219,9 @@ function evaluateRanking(candidates: CandidateRow[], votes: VoteRow[], memberCou
       skips * SCORE_CONFIG.skipWeight;
 
     const normalizedTmdbQuality = normalizeVoteAverage(tmdbVoteAverage);
+    const recencyScore = computeRecencyScore(candidate.metadata_snapshot?.release_date);
+    const popularityNorm = normalizePopularity(candidate.metadata_snapshot?.popularity);
+    const voteCountNorm = normalizeVoteCount(candidate.metadata_snapshot?.vote_count);
 
     const consensusBonus = likes >= Math.ceil(memberCount * SCORE_CONFIG.earlyWinRatio) ? SCORE_CONFIG.consensusBonus : 0;
     const unanimousBonus = likes === memberCount && memberCount > 0 ? SCORE_CONFIG.unanimousBonus : 0;
@@ -181,6 +233,9 @@ function evaluateRanking(candidates: CandidateRow[], votes: VoteRow[], memberCou
       skipRatio * SCORE_CONFIG.skipRatioWeight +
       normalizedTmdbQuality * SCORE_CONFIG.tmdbQualityWeight +
       decisionCoverage * SCORE_CONFIG.certaintyWeight +
+      recencyScore * SCORE_CONFIG.recencyWeight +
+      popularityNorm * SCORE_CONFIG.popularityWeight +
+      voteCountNorm * SCORE_CONFIG.voteCountWeight +
       consensusBonus +
       unanimousBonus;
 

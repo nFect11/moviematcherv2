@@ -18,7 +18,12 @@ interface CandidateRow {
     poster_path?: string | null;
     release_date?: string | null;
     vote_average?: number;
+    vote_count?: number;
     genre_ids?: number[];
+    runtime?: number | null;
+    original_language?: string | null;
+    popularity?: number;
+    trailers?: { name: string; key: string; site: string; type: string; official: boolean }[];
   };
 }
 
@@ -169,8 +174,12 @@ export const handler = async (event: NetlifyEvent) => {
         posterPath: candidate.metadata_snapshot.poster_path ?? null,
         releaseDate: candidate.metadata_snapshot.release_date ?? null,
         voteAverage: candidate.metadata_snapshot.vote_average ?? 0,
+        voteCount: candidate.metadata_snapshot.vote_count ?? 0,
         genreIds: candidate.metadata_snapshot.genre_ids ?? [],
-        roundIndex: candidate.round_index
+        roundIndex: candidate.round_index,
+        runtime: candidate.metadata_snapshot.runtime ?? null,
+        language: candidate.metadata_snapshot.original_language ?? null,
+        popularity: candidate.metadata_snapshot.popularity ?? 0
       })),
       userVotes: userVotes.map((vote) => ({
         tmdbId: vote.tmdb_id,

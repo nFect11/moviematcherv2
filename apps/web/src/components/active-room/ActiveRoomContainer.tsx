@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DragEndEvent, DragMoveEvent } from "@dnd-kit/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MovieCandidate, VoteChoice } from "@moviematcher/shared";
-import { fetchMovieDetails } from "../../lib/api";
+import { fetchMovieDetails, refetchCandidates } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 import { fetchRoomVotingSnapshot, submitVote, subscribeToVotingChanges, toPosterUrl } from "../../lib/voting";
 import type { ActiveRoomController, SwipeDecision } from "./ActiveRoomContext";
@@ -37,6 +37,8 @@ export function ActiveRoomContainer({
   const preloadedPosterUrlsRef = useRef<Set<string>>(new Set());
   const previousLikesByMovieRef = useRef<Map<number, number>>(new Map());
   const exitingCandidateRef = useRef<MovieCandidate | null>(null);
+  const decisionCountRef = useRef(0);
+  const refetchTimerRef = useRef<number | null>(null);
 
   const votingSnapshotQuery = useQuery({
     queryKey: ["voting", roomId, userId],
@@ -67,6 +69,38 @@ export function ActiveRoomContainer({
       onErrorChange(error instanceof Error ? error.message : "Could not submit vote");
     }
   });
+
+  const refetchMutation = useMutation({
+    mutationFn: () => refetchCandidates({ roomId }),
+    onSuccess: (result) => {
+      if (result.newTmdbIds.length > 0) {
+        dispatchCandidateQueue({
+          type: "inject_batch",
+          tmdbIds: result.newTmdbIds,
+          startIndex: 3
+        });
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["voting", roomId, userId] });
+    },
+    onError: () => {
+      // ponytail: silent — refetch failures shouldn't disrupt swiping
+    }
+  });
+
+  const maybeRefetch = () => {
+    decisionCountRef.current += 1;
+    if (decisionCountRef.current % 5 === 0) {
+      if (refetchTimerRef.current) {
+        window.clearTimeout(refetchTimerRef.current);
+      }
+
+      refetchTimerRef.current = window.setTimeout(() => {
+        refetchMutation.mutate();
+        refetchTimerRef.current = null;
+      }, 400);
+    }
+  };
 
   const votingSnapshot = votingSnapshotQuery.data;
 
@@ -168,6 +202,55 @@ export function ActiveRoomContainer({
     });
   }, [rankedRemainingCandidateIds, reactionByMovie, votingSnapshot]);
 
+  // Cross-user social injection: every ~8 swipes, inject a highly-liked movie
+  // from the room's liked pool, even if genres don't match this user's preferences.
+  const processedCount = Object.keys(reactionByMovie).length;
+  const crossInjectionTriggeredRef = useRef(new Set<number>());
+
+  useEffect(() => {
+    if (!votingSnapshot || processedCount === 0) {
+      return;
+    }
+
+    // Trigger on swipes 8, 16, 24, 32, 40
+    if (processedCount % 8 !== 0) {
+      return;
+    }
+
+    // Don't trigger twice for the same count
+    if (crossInjectionTriggeredRef.current.has(processedCount)) {
+      return;
+    }
+
+    crossInjectionTriggeredRef.current.add(processedCount);
+
+    // Find liked-pool movies: any movie with likes >= 1 where this user hasn't voted
+    const pool = votingSnapshot.aggregates
+      .filter((a) => a.likes > 0 && !reactionByMovie[a.tmdbId])
+      .filter((a) => rankedRemainingCandidateIds.includes(a.tmdbId))
+      .sort((a, b) => b.likes - a.likes);
+
+    if (pool.length === 0) {
+      return;
+    }
+
+    // Deterministic "random" pick: hash of processedCount + userId
+    const hashInput = `${processedCount}:${userId}`;
+    let hashAcc = 0;
+    for (let i = 0; i < hashInput.length; i += 1) {
+      hashAcc = ((hashAcc << 5) - hashAcc + hashInput.charCodeAt(i)) | 0;
+    }
+
+    const pickIndex = Math.abs(hashAcc) % pool.length;
+    const picked = pool[pickIndex];
+
+    dispatchCandidateQueue({
+      type: "inject_batch",
+      tmdbIds: [picked.tmdbId],
+      startIndex: 3
+    });
+  }, [processedCount, votingSnapshot, reactionByMovie, rankedRemainingCandidateIds, userId]);
+
   const queuedCandidates = useMemo(
     () =>
       candidateQueue
@@ -239,6 +322,7 @@ export function ActiveRoomContainer({
 
     dispatchCandidateQueue({ type: "remove", tmdbId: candidate.tmdbId });
     setOptimisticDecisions((prev) => ({ ...prev, [candidate.tmdbId]: decision }));
+    maybeRefetch();
 
     voteMutation.mutate(
       {
@@ -265,6 +349,7 @@ export function ActiveRoomContainer({
   };
 
   const finalizeCardExit = (candidate: MovieCandidate, decision: VoteChoice) => {
+    maybeRefetch();
     voteMutation.mutate(
       {
         roomId,
@@ -364,7 +449,6 @@ export function ActiveRoomContainer({
   };
 
   const totalCandidates = votingSnapshot?.candidates.length ?? 0;
-  const processedCount = Object.keys(reactionByMovie).length;
 
   const controller: ActiveRoomController = {
     votingLoading: votingSnapshotQuery.isLoading,

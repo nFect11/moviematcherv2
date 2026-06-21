@@ -3,6 +3,8 @@ import type {
   FinalVoteSnapshotInput,
   MovieDetails,
   MovieDetailsInput,
+  RefetchCandidatesInput,
+  RefetchCandidatesResult,
   RoomVotingSnapshot,
   RoomVotingSnapshotInput,
   SubmitDecisionInput,
@@ -84,4 +86,8 @@ export function submitFinalVote(payload: SubmitFinalVoteInput) {
 
 export function updateRoomPreferences(payload: RoomUpdatePreferencesInput) {
   return postFunction<RoomUpdatePreferencesInput, { ok: boolean }>("update-room-preferences", payload);
+}
+
+export function refetchCandidates(payload: RefetchCandidatesInput) {
+  return postFunction<RefetchCandidatesInput, RefetchCandidatesResult>("refetch-candidates", payload);
 }

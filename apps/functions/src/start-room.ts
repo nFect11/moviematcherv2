@@ -1,7 +1,7 @@
 import type { StartRoomInput } from "@moviematcher/shared";
 import { json, options, parseJsonBody, readBearerToken, type NetlifyEvent } from "./_lib/http";
 import { getServiceClient, getUserFromToken } from "./_lib/supabase";
-import { discoverMovies } from "./_lib/tmdb";
+import { discoverMoviesMultiSource, fetchMovieDetails, sortCandidates } from "./_lib/tmdb";
 
 type StartRoomBody = StartRoomInput;
 
@@ -54,15 +54,14 @@ function pickTopGenres(counts: Map<number, number>, limit: number) {
 
 function resolveRegionConfig(country: string | null | undefined) {
   const code = (country ?? "DE").trim().toUpperCase();
-  const regionMap: Record<string, { watchRegion: string; language: string }> = {
-    DE: { watchRegion: "DE", language: "de-DE" },
-    NL: { watchRegion: "NL", language: "nl-NL" },
-    BE: { watchRegion: "BE", language: "fr-BE" },
-    AT: { watchRegion: "AT", language: "de-AT" },
-    CH: { watchRegion: "CH", language: "de-CH" }
-  };
+  const validRegions = new Set(["DE", "NL", "BE", "AT", "CH"]);
+  return validRegions.has(code) ? code : "DE";
+}
 
-  return regionMap[code] ?? { watchRegion: "DE", language: "de-DE" };
+function fiveYearsAgo() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 5);
+  return d.toISOString().slice(0, 10);
 }
 
 export const handler = async (event: NetlifyEvent) => {
@@ -140,26 +139,68 @@ export const handler = async (event: NetlifyEvent) => {
 
     const hostPreferences = preferenceRows.find((row) => row.user_id === room.host_user_id);
     const providerNames = (hostPreferences?.providers ?? []).filter(Boolean);
-    const regionConfig = resolveRegionConfig(hostPreferences?.country);
+    const watchRegion = resolveRegionConfig(hostPreferences?.country);
 
-    const discoveredMovies = await discoverMovies({
-      withGenres,
-      withoutGenres,
-      providerNames,
-      watchRegion: regionConfig.watchRegion,
-      language: regionConfig.language,
-      pages: 3
-    });
+    const discoveredMovies = sortCandidates(
+      await discoverMoviesMultiSource({
+        withGenres,
+        withoutGenres,
+        providerNames,
+        watchRegion,
+        language: "en-US",
+        pages: 3,
+        releaseDateGte: fiveYearsAgo(),
+        voteAverageGte: 5.5,
+        voteCountGte: 100
+      })
+    );
 
-    const candidates = discoveredMovies.slice(0, 30).map((movie, index) => ({
+    const candidates: Array<{
+      room_id: string;
+      tmdb_id: number;
+      metadata_snapshot: Record<string, unknown>;
+      round_index: number;
+    }> = discoveredMovies.slice(0, 50).map((movie, index) => ({
       room_id: roomId,
       tmdb_id: movie.id,
-      metadata_snapshot: movie,
+      metadata_snapshot: {
+        title: movie.title,
+        overview: movie.overview,
+        poster_path: movie.poster_path,
+        backdrop_path: movie.backdrop_path,
+        release_date: movie.release_date,
+        vote_average: movie.vote_average,
+        vote_count: movie.vote_count,
+        popularity: movie.popularity,
+        genre_ids: movie.genre_ids,
+        original_language: movie.original_language
+      },
       round_index: index
     }));
 
     if (!candidates.length) {
       return json(502, { error: "No candidate movies returned from TMDB" });
+    }
+
+    // Enrich top 20 with TMDB details (runtime, trailers)
+    const enrichCount = Math.min(20, candidates.length);
+    const detailResults = await Promise.all(
+      candidates.slice(0, enrichCount).map((c) =>
+        fetchMovieDetails(c.tmdb_id, "en-US").catch(() => null)
+      )
+    );
+
+    for (let i = 0; i < enrichCount; i += 1) {
+      const detail = detailResults[i];
+      if (!detail) {
+        continue;
+      }
+
+      candidates[i].metadata_snapshot = {
+        ...candidates[i].metadata_snapshot,
+        runtime: detail.runtime,
+        trailers: detail.trailers.slice(0, 3)
+      };
     }
 
     await supabase.from("movie_candidates").delete().eq("room_id", roomId);
