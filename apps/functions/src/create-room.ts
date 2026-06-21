@@ -15,42 +15,6 @@ function generateRoomCode(length = 6) {
   return result;
 }
 
-function normalizeNumberArray(values: unknown): number[] {
-  if (!Array.isArray(values)) {
-    return [];
-  }
-
-  const deduped = new Set<number>();
-  for (const value of values) {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-      continue;
-    }
-    deduped.add(Math.trunc(value));
-  }
-
-  return [...deduped];
-}
-
-function normalizeStringArray(values: unknown): string[] {
-  if (!Array.isArray(values)) {
-    return [];
-  }
-
-  const deduped = new Set<string>();
-  for (const value of values) {
-    if (typeof value !== "string") {
-      continue;
-    }
-    const normalized = value.trim();
-    if (!normalized) {
-      continue;
-    }
-    deduped.add(normalized);
-  }
-
-  return [...deduped];
-}
-
 export const handler = async (event: NetlifyEvent) => {
   if (event.httpMethod === "OPTIONS") {
     return options();
@@ -80,10 +44,6 @@ export const handler = async (event: NetlifyEvent) => {
     if (!nickname || nickname.length < 2 || nickname.length > 30) {
       return json(400, { error: "Nickname must be between 2 and 30 characters" });
     }
-
-    const preferredGenres = normalizeNumberArray(body.preferredGenres);
-    const blockedGenres = normalizeNumberArray(body.blockedGenres);
-    const providers = normalizeStringArray(body.providers);
 
     const supabase = getServiceClient();
 
@@ -127,20 +87,6 @@ export const handler = async (event: NetlifyEvent) => {
     if (memberError) {
       await supabase.from("rooms").delete().eq("id", roomId);
       throw memberError;
-    }
-
-    const { error: preferencesError } = await supabase.from("room_preferences").insert({
-      room_id: roomId,
-      user_id: user.id,
-      liked_genres: preferredGenres,
-      disliked_genres: blockedGenres,
-      providers
-    });
-
-    if (preferencesError) {
-      await supabase.from("room_members").delete().match({ room_id: roomId, user_id: user.id });
-      await supabase.from("rooms").delete().eq("id", roomId);
-      throw preferencesError;
     }
 
     return json(200, {

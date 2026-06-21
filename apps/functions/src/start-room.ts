@@ -10,6 +10,7 @@ interface RoomPreferenceRow {
   liked_genres: number[] | null;
   disliked_genres: number[] | null;
   providers: string[] | null;
+  country: string | null;
 }
 
 function isLikelyUuid(value: string) {
@@ -49,6 +50,19 @@ function pickTopGenres(counts: Map<number, number>, limit: number) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([genre]) => genre);
+}
+
+function resolveRegionConfig(country: string | null | undefined) {
+  const code = (country ?? "DE").trim().toUpperCase();
+  const regionMap: Record<string, { watchRegion: string; language: string }> = {
+    DE: { watchRegion: "DE", language: "de-DE" },
+    NL: { watchRegion: "NL", language: "nl-NL" },
+    BE: { watchRegion: "BE", language: "fr-BE" },
+    AT: { watchRegion: "AT", language: "de-AT" },
+    CH: { watchRegion: "CH", language: "de-CH" }
+  };
+
+  return regionMap[code] ?? { watchRegion: "DE", language: "de-DE" };
 }
 
 export const handler = async (event: NetlifyEvent) => {
@@ -103,7 +117,7 @@ export const handler = async (event: NetlifyEvent) => {
 
     const { data: preferenceRows, error: preferencesError } = await supabase
       .from("room_preferences")
-      .select("user_id,liked_genres,disliked_genres,providers")
+      .select("user_id,liked_genres,disliked_genres,providers,country")
       .eq("room_id", roomId)
       .returns<RoomPreferenceRow[]>();
 
@@ -126,12 +140,14 @@ export const handler = async (event: NetlifyEvent) => {
 
     const hostPreferences = preferenceRows.find((row) => row.user_id === room.host_user_id);
     const providerNames = (hostPreferences?.providers ?? []).filter(Boolean);
+    const regionConfig = resolveRegionConfig(hostPreferences?.country);
 
     const discoveredMovies = await discoverMovies({
       withGenres,
       withoutGenres,
       providerNames,
-      watchRegion: "US",
+      watchRegion: regionConfig.watchRegion,
+      language: regionConfig.language,
       pages: 3
     });
 

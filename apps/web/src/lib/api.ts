@@ -12,6 +12,7 @@ import type {
   RoomActionResult,
   RoomCreateInput,
   RoomJoinInput,
+  RoomUpdatePreferencesInput,
   StartRoomInput,
   StartRoomResult
 } from "@moviematcher/shared";
@@ -79,4 +80,8 @@ export function fetchFinalVoteSnapshot(payload: FinalVoteSnapshotInput) {
 
 export function submitFinalVote(payload: SubmitFinalVoteInput) {
   return postFunction<SubmitFinalVoteInput, SubmitFinalVoteResult>("submit-final-vote", payload);
+}
+
+export function updateRoomPreferences(payload: RoomUpdatePreferencesInput) {
+  return postFunction<RoomUpdatePreferencesInput, { ok: boolean }>("update-room-preferences", payload);
 }

@@ -28,6 +28,14 @@ export const PROVIDER_OPTIONS = [
   "Paramount Plus"
 ] as const;
 
+export const COUNTRY_OPTIONS = [
+  { code: "DE", label: "Germany" },
+  { code: "NL", label: "Netherlands" },
+  { code: "BE", label: "Belgium" },
+  { code: "AT", label: "Austria" },
+  { code: "CH", label: "Switzerland" }
+] as const;
+
 export type SetupMode = "create" | "join";
 
 interface PreferenceStepInfo {
@@ -46,8 +54,8 @@ export const STEP_COPY: Record<SetupMode, PreferenceStepInfo[]> = {
       hint: "These genres will be filtered down in matching."
     },
     {
-      title: "Select streaming providers you have",
-      hint: "Only host selects providers for room filtering."
+      title: "Streaming & region",
+      hint: "Select your streaming providers and country so only watchable movies are recommended."
     }
   ],
   join: [

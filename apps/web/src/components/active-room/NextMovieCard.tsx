@@ -1,4 +1,4 @@
-import { Box, Image, Text } from "@mantine/core";
+import { Box, Image, Text, Title } from "@mantine/core";
 import type { MovieCandidate } from "@moviematcher/shared";
 import { releaseYear } from "../../utils/movie";
 
@@ -61,10 +61,9 @@ export function NextMovieCard({
         }}
       />
 
-      <Text
+      <Title
+        order={3}
         c="white"
-        fw={700}
-        size="sm"
         style={{
           position: "absolute",
           left: 12,
@@ -74,7 +73,7 @@ export function NextMovieCard({
         }}
       >
         {candidate.title} ({releaseYear(candidate.releaseDate)})
-      </Text>
+      </Title>
     </Box>
   );
 }

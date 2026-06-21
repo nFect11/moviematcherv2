@@ -36,6 +36,7 @@ export function ActiveRoomContainer({
   const swipeExitTimerRef = useRef<number | null>(null);
   const preloadedPosterUrlsRef = useRef<Set<string>>(new Set());
   const previousLikesByMovieRef = useRef<Map<number, number>>(new Map());
+  const exitingCandidateRef = useRef<MovieCandidate | null>(null);
 
   const votingSnapshotQuery = useQuery({
     queryKey: ["voting", roomId, userId],
@@ -189,9 +190,13 @@ export function ActiveRoomContainer({
     [queuedCandidates]
   );
 
-  const activeCardExit = currentCandidate && cardExit?.tmdbId === currentCandidate.tmdbId ? cardExit : null;
-  const cardIsExiting = Boolean(activeCardExit);
+  const cardIsExiting = Boolean(cardExit);
   const dragRevealProgress = cardIsExiting ? 1 : Math.min(1, Math.hypot(dragOffset.x, dragOffset.y) / 110);
+
+  // During exit, nextCandidate is the 2nd-next movie (queue shifted).
+  // Show currentCandidate underneath instead — it's the card transitioning in.
+  const displayedNextCandidate = cardIsExiting ? currentCandidate : nextCandidate;
+  const displayedNextPoster = cardIsExiting ? currentCandidatePoster : nextCandidatePoster;
 
   const movieDetailsQuery = useQuery({
     queryKey: ["movie-details", currentCandidate?.tmdbId],
@@ -259,6 +264,30 @@ export function ActiveRoomContainer({
     );
   };
 
+  const finalizeCardExit = (candidate: MovieCandidate, decision: VoteChoice) => {
+    voteMutation.mutate(
+      {
+        roomId,
+        userId,
+        tmdbId: candidate.tmdbId,
+        vote: decision
+      },
+      {
+        onError: () => {
+          setOptimisticDecisions((prev) => {
+            const next = { ...prev };
+            delete next[candidate.tmdbId];
+            return next;
+          });
+          dispatchCandidateQueue({ type: "prepend", tmdbId: candidate.tmdbId });
+        }
+      }
+    );
+    setCardExit(null);
+    exitingCandidateRef.current = null;
+    swipeExitTimerRef.current = null;
+  };
+
   const triggerCardSwipe = (decision: VoteChoice, startX = 0) => {
     if (!currentCandidate || cardIsExiting) {
       return;
@@ -269,16 +298,22 @@ export function ActiveRoomContainer({
       swipeExitTimerRef.current = null;
     }
 
+    const candidate = currentCandidate;
+
+    // Pin the exiting candidate so SwipeMovieCard can keep rendering it during exit
+    exitingCandidateRef.current = candidate;
+
+    // Remove from queue IMMEDIATELY — lets next card pre-render during exit animation
+    dispatchCandidateQueue({ type: "remove", tmdbId: candidate.tmdbId });
+    setOptimisticDecisions((prev) => ({ ...prev, [candidate.tmdbId]: decision }));
     setDragOffset({ x: 0, y: 0 });
 
     const direction = decision === "like" ? "right" : "left";
-    setCardExit({ tmdbId: currentCandidate.tmdbId, direction, startX });
+    setCardExit({ tmdbId: candidate.tmdbId, direction, startX });
 
     swipeExitTimerRef.current = window.setTimeout(() => {
-      commitMovieDecision(currentCandidate, decision);
-      setCardExit(null);
-      swipeExitTimerRef.current = null;
-    }, 320);
+      finalizeCardExit(candidate, decision);
+    }, 80);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -336,15 +371,17 @@ export function ActiveRoomContainer({
     votingErrorMessage: votingSnapshotQuery.error instanceof Error ? votingSnapshotQuery.error.message : null,
     currentCandidate,
     currentCandidatePoster,
-    nextCandidate,
-    nextCandidatePoster,
+    nextCandidate: displayedNextCandidate,
+    nextCandidatePoster: displayedNextPoster,
+    exitingCandidate: exitingCandidateRef.current,
+    displayedTmdbId: exitingCandidateRef.current?.tmdbId ?? currentCandidate?.tmdbId ?? null,
     dragRevealProgress,
     processedCount,
     totalCandidates,
     votePending: voteMutation.isPending,
     cardIsExiting,
-    activeCardExitDirection: activeCardExit?.direction ?? null,
-    activeCardExitStartX: activeCardExit?.startX ?? 0,
+    activeCardExitDirection: cardExit?.direction ?? null,
+    activeCardExitStartX: cardExit?.startX ?? 0,
     showHistory,
     showMenu,
     showInfo,

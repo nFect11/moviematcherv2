@@ -4,9 +4,6 @@ export type FinalResolutionMethod = "secret_vote" | "wheel";
 
 export interface RoomCreateInput {
   nickname: string;
-  preferredGenres: number[];
-  blockedGenres: number[];
-  providers: string[];
 }
 
 export interface RoomJoinInput {
@@ -14,6 +11,14 @@ export interface RoomJoinInput {
   nickname: string;
   preferredGenres: number[];
   blockedGenres: number[];
+}
+
+export interface RoomUpdatePreferencesInput {
+  roomId: string;
+  likedGenres: number[];
+  dislikedGenres: number[];
+  providers?: string[];
+  country?: string;
 }
 
 export interface RoomActionResult {

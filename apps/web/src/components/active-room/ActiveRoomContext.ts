@@ -16,6 +16,8 @@ export type ActiveRoomController = {
   currentCandidatePoster: string | null;
   nextCandidate: MovieCandidate | null;
   nextCandidatePoster: string | null;
+  exitingCandidate: MovieCandidate | null;
+  displayedTmdbId: number | null;
   dragRevealProgress: number;
   processedCount: number;
   totalCandidates: number;

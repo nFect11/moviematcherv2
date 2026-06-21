@@ -27,8 +27,8 @@ describe("App", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Create a room" }),
+      screen.getByRole("button", { name: "Create room" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Join room" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("tab", { name: "Join room" })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Container, Paper, Stack } from "@mantine/core";
 import type { RoomActionResult } from "@moviematcher/shared";
@@ -15,6 +15,12 @@ import { useSessionStore } from "./store/useSessionStore";
 
 const ROOM_SNAPSHOT_POLL_INTERVAL_MS = 2000;
 
+function parseInviteCode(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get("join") ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return code.length === 6 ? code : null;
+}
+
 export function App() {
   const {
     nickname,
@@ -27,6 +33,8 @@ export function App() {
     setRoomSession,
     clearRoomSession,
   } = useSessionStore();
+
+  const inviteCode = useMemo(() => parseInviteCode(), []);
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -219,6 +227,7 @@ export function App() {
           {!inRoom ? (
             <RoomOnboarding
               nickname={nickname}
+              inviteCode={inviteCode}
               onNicknameChange={setNickname}
               onRoomActionSuccess={handleRoomActionSuccess}
               onErrorChange={setErrorMessage}

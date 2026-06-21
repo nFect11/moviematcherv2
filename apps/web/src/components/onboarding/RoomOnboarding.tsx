@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import type { RoomActionResult } from "@moviematcher/shared";
 import { setupLastStep, type SetupMode } from "../../constants/setup";
-import { createRoom, joinRoom } from "../../lib/api";
+import { createRoom, joinRoom, updateRoomPreferences } from "../../lib/api";
 import { LandingView, type LandingViewModel } from "./LandingView";
 import { SetupFlow, type SetupFlowModel } from "./SetupFlow";
+
+type OnboardingPhase = "landing" | "setup";
 
 function resetSelections() {
   return {
@@ -16,30 +18,40 @@ function resetSelections() {
 
 export function RoomOnboarding({
   nickname,
+  inviteCode,
   onNicknameChange,
   onRoomActionSuccess,
   onErrorChange,
 }: {
   nickname: string;
+  inviteCode: string | null;
   onNicknameChange: (value: string) => void;
   onRoomActionSuccess: (result: RoomActionResult) => void;
   onErrorChange: (message: string | null) => void;
 }) {
-  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [activeTab, setActiveTab] = useState<"create" | "join">(
+    inviteCode ? "join" : "create"
+  );
+  const [roomCodeInput, setRoomCodeInput] = useState(inviteCode ?? "");
+  const [phase, setPhase] = useState<OnboardingPhase>("landing");
   const [setupMode, setSetupMode] = useState<SetupMode | null>(null);
   const [setupStep, setSetupStep] = useState(0);
   const [likedGenres, setLikedGenres] = useState<number[]>([]);
   const [blockedGenres, setBlockedGenres] = useState<number[]>([]);
   const [providers, setProviders] = useState<string[]>([]);
+  const [country, setCountry] = useState("DE");
+  // Room session populated immediately after create-room for host
+  const [pendingRoomSession, setPendingRoomSession] = useState<RoomActionResult | null>(null);
 
   const createRoomMutation = useMutation({
     mutationFn: createRoom,
     onSuccess: (result) => {
       onErrorChange(null);
-      setSetupMode(null);
-      setSetupStep(0);
+      setPendingRoomSession(result);
       setRoomCodeInput(result.roomCode);
-      onRoomActionSuccess(result);
+      setSetupMode("create");
+      setSetupStep(0);
+      setPhase("setup");
     },
     onError: (error: unknown) => {
       onErrorChange(
@@ -52,9 +64,6 @@ export function RoomOnboarding({
     mutationFn: joinRoom,
     onSuccess: (result) => {
       onErrorChange(null);
-      setSetupMode(null);
-      setSetupStep(0);
-      setRoomCodeInput(result.roomCode);
       onRoomActionSuccess(result);
     },
     onError: (error: unknown) => {
@@ -64,13 +73,42 @@ export function RoomOnboarding({
     },
   });
 
-  const startSetup = (mode: SetupMode) => {
+  const updatePreferencesMutation = useMutation({
+    mutationFn: updateRoomPreferences,
+    onSuccess: () => {
+      onErrorChange(null);
+      if (pendingRoomSession) {
+        onRoomActionSuccess(pendingRoomSession);
+      }
+      setPhase("landing");
+      setSetupMode(null);
+      setSetupStep(0);
+      setPendingRoomSession(null);
+    },
+    onError: (error: unknown) => {
+      onErrorChange(
+        error instanceof Error ? error.message : "Could not save preferences",
+      );
+    },
+  });
+
+  const startCreateRoom = () => {
     if (!nickname.trim()) {
-      onErrorChange("Please enter a nickname first.");
+      onErrorChange("Please enter your name first.");
       return;
     }
 
-    if (mode === "join" && roomCodeInput.trim().length !== 6) {
+    onErrorChange(null);
+    createRoomMutation.mutate({ nickname: nickname.trim() });
+  };
+
+  const startJoinSetup = () => {
+    if (!nickname.trim()) {
+      onErrorChange("Please enter your name first.");
+      return;
+    }
+
+    if (roomCodeInput.trim().length !== 6) {
       onErrorChange("Please enter a valid 6-character room code.");
       return;
     }
@@ -79,8 +117,9 @@ export function RoomOnboarding({
     setLikedGenres(defaults.likedGenres);
     setBlockedGenres(defaults.blockedGenres);
     setProviders(defaults.providers);
-    setSetupMode(mode);
+    setSetupMode("join");
     setSetupStep(0);
+    setPhase("setup");
     onErrorChange(null);
   };
 
@@ -110,17 +149,21 @@ export function RoomOnboarding({
     );
   };
 
-  const submitSetup = (mode: SetupMode) => {
-    if (mode === "create") {
-      createRoomMutation.mutate({
-        nickname: nickname.trim(),
-        preferredGenres: likedGenres,
-        blockedGenres,
-        providers,
-      });
+  const submitCreateSetup = () => {
+    if (!pendingRoomSession) {
       return;
     }
 
+    updatePreferencesMutation.mutate({
+      roomId: pendingRoomSession.roomId,
+      likedGenres,
+      dislikedGenres: blockedGenres,
+      providers,
+      country,
+    });
+  };
+
+  const submitJoinSetup = () => {
     joinRoomMutation.mutate({
       roomCode: roomCodeInput.trim().toUpperCase(),
       nickname: nickname.trim(),
@@ -135,7 +178,11 @@ export function RoomOnboarding({
     }
 
     if (setupStep >= setupLastStep(setupMode)) {
-      submitSetup(setupMode);
+      if (setupMode === "create") {
+        submitCreateSetup();
+      } else {
+        submitJoinSetup();
+      }
       return;
     }
 
@@ -144,42 +191,54 @@ export function RoomOnboarding({
 
   const goBackSetup = () => {
     if (setupStep <= 0) {
+      setPhase("landing");
       setSetupMode(null);
       setSetupStep(0);
+      setPendingRoomSession(null);
       return;
     }
 
     setSetupStep((prev) => prev - 1);
   };
 
-  const isBusy = createRoomMutation.isPending || joinRoomMutation.isPending;
+  const isBusy =
+    createRoomMutation.isPending ||
+    joinRoomMutation.isPending ||
+    updatePreferencesMutation.isPending;
+
+  if (phase === "setup" && setupMode) {
+    const setupModel: SetupFlowModel = {
+      setupMode,
+      setupStep,
+      likedGenres,
+      blockedGenres,
+      providers,
+      country,
+      roomCode: pendingRoomSession?.roomCode ?? roomCodeInput.toUpperCase(),
+      isHost: setupMode === "create",
+      isBusy,
+      onToggleLikedGenre: toggleLikedGenre,
+      onToggleBlockedGenre: toggleBlockedGenre,
+      onToggleProvider: toggleProvider,
+      onCountryChange: setCountry,
+      onBack: goBackSetup,
+      onContinue: continueSetup,
+    };
+
+    return <SetupFlow model={setupModel} />;
+  }
 
   const landingModel: LandingViewModel = {
     nickname,
     roomCodeInput,
+    inviteCode,
+    activeTab,
     onNicknameChange,
     onRoomCodeInputChange: setRoomCodeInput,
-    onCreate: () => startSetup("create"),
-    onJoin: () => startSetup("join"),
+    onTabChange: setActiveTab,
+    onCreate: startCreateRoom,
+    onJoin: startJoinSetup,
   };
 
-  if (!setupMode) {
-    return <LandingView model={landingModel} />;
-  }
-
-  const setupModel: SetupFlowModel = {
-    setupMode,
-    setupStep,
-    likedGenres,
-    blockedGenres,
-    providers,
-    isBusy,
-    onToggleLikedGenre: toggleLikedGenre,
-    onToggleBlockedGenre: toggleBlockedGenre,
-    onToggleProvider: toggleProvider,
-    onBack: goBackSetup,
-    onContinue: continueSetup,
-  };
-
-  return <SetupFlow model={setupModel} />;
+  return <LandingView model={landingModel} />;
 }

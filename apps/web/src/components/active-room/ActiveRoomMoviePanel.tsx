@@ -50,11 +50,13 @@ export function ActiveRoomMoviePanel() {
 
             <Box style={{ position: "absolute", inset: 8, zIndex: 2 }}>
               <SwipeMovieCard
+                key={controller.displayedTmdbId}
                 candidate={controller.currentCandidate}
                 posterUrl={controller.currentCandidatePoster}
                 disabled={controller.cardIsExiting}
                 exitDirection={controller.activeCardExitDirection}
                 exitStartX={controller.activeCardExitStartX}
+                exitingCandidate={controller.exitingCandidate}
               />
             </Box>
           </Box>

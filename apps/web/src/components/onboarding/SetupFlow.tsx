@@ -1,4 +1,5 @@
-import { Box, Button, Group, Paper, SimpleGrid, Stack, Text, UnstyledButton } from "@mantine/core";
+import { useState } from "react";
+import { Box, Button, Group, Paper, Select, SimpleGrid, Stack, Text, UnstyledButton } from "@mantine/core";
 import {
   IconBrandAmazon,
   IconBrandApple,
@@ -6,10 +7,12 @@ import {
   IconBrandHbo,
   IconBrandNetflix,
   IconDeviceTv,
+  IconMapPin,
   IconMasksTheater,
   IconMovie,
   IconMusic,
   IconRocket,
+  IconShare3,
   IconSkull,
   IconSparkles,
   IconSpy,
@@ -20,12 +23,14 @@ import {
 } from "@tabler/icons-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  COUNTRY_OPTIONS,
   GENRE_OPTIONS,
   PROVIDER_OPTIONS,
   STEP_COPY,
   setupLastStep,
   type SetupMode,
 } from "../../constants/setup";
+import { InviteModal } from "./InviteModal";
 
 export type SetupFlowModel = {
   setupMode: SetupMode;
@@ -33,10 +38,14 @@ export type SetupFlowModel = {
   likedGenres: number[];
   blockedGenres: number[];
   providers: string[];
+  country: string;
+  roomCode: string | null;
+  isHost: boolean;
   isBusy: boolean;
   onToggleLikedGenre: (genreId: number) => void;
   onToggleBlockedGenre: (genreId: number) => void;
   onToggleProvider: (provider: string) => void;
+  onCountryChange: (country: string) => void;
   onBack: () => void;
   onContinue: () => void;
 };
@@ -44,9 +53,11 @@ export type SetupFlowModel = {
 export function SetupFlow({ model }: { model: SetupFlowModel }) {
   const stepMeta = STEP_COPY[model.setupMode][model.setupStep];
   const isGenreStep = model.setupStep <= 1;
+  const isProvidersStep = model.setupMode === "create" && model.setupStep === 2;
   const stepCount = setupLastStep(model.setupMode) + 1;
   const stepTheme = getStepTheme(model.setupStep);
   const direction = 1;
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   return (
     <Paper
@@ -107,9 +118,22 @@ export function SetupFlow({ model }: { model: SetupFlowModel }) {
                     </Text>
                   </Stack>
                 </Group>
-                <Text c="dimmed" size="sm">
-                  {model.setupStep + 1}/{stepCount}
-                </Text>
+                <Group gap="xs" wrap="nowrap">
+                  {model.isHost && model.roomCode ? (
+                    <Button
+                      variant="subtle"
+                      color="gray"
+                      size="xs"
+                      leftSection={<IconShare3 size={14} />}
+                      onClick={() => setInviteOpen(true)}
+                    >
+                      Invite friends
+                    </Button>
+                  ) : null}
+                  <Text c="dimmed" size="sm">
+                    {model.setupStep + 1}/{stepCount}
+                  </Text>
+                </Group>
               </Group>
               <Text c="dimmed" size="sm">
                 {stepMeta.hint}
@@ -189,44 +213,64 @@ export function SetupFlow({ model }: { model: SetupFlowModel }) {
               </SimpleGrid>
             ) : null}
 
-            {model.setupMode === "create" && model.setupStep === 2 ? (
-              <SimpleGrid mt="md" cols={{ base: 2, sm: 3 }} spacing="sm">
-                {PROVIDER_OPTIONS.map((provider) => {
-                  const selected = model.providers.includes(provider);
+            {isProvidersStep ? (
+              <Stack mt="md" gap="md">
+                <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="sm">
+                  {PROVIDER_OPTIONS.map((provider) => {
+                    const selected = model.providers.includes(provider);
 
-                  return (
-                    <motion.div
-                      key={provider}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.12, ease: "easeOut" }}
-                      whileHover={{ y: -2, scale: 1.01 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <UnstyledButton
-                        style={{
-                          width: "100%",
-                          borderRadius: 14,
-                          border: `1px solid ${selected ? "rgba(251,146,60,0.8)" : stepTheme.tileBorder}`,
-                          background: selected
-                            ? "linear-gradient(145deg, rgba(249,115,22,0.24), rgba(124,45,18,0.2))"
-                            : stepTheme.tileBackground,
-                          padding: "12px 10px",
-                          transition: "all 120ms ease",
-                        }}
-                        onClick={() => model.onToggleProvider(provider)}
+                    return (
+                      <motion.div
+                        key={provider}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.12, ease: "easeOut" }}
+                        whileHover={{ y: -2, scale: 1.01 }}
+                        whileTap={{ scale: 0.98 }}
                       >
-                        <Stack align="center" gap={8}>
-                          {renderProviderLogo(provider)}
-                          <Text ta="center" size="sm" fw={600} lh={1.2}>
-                            {provider}
-                          </Text>
-                        </Stack>
-                      </UnstyledButton>
-                    </motion.div>
-                  );
-                })}
-              </SimpleGrid>
+                        <UnstyledButton
+                          style={{
+                            width: "100%",
+                            borderRadius: 14,
+                            border: `1px solid ${selected ? "rgba(251,146,60,0.8)" : stepTheme.tileBorder}`,
+                            background: selected
+                              ? "linear-gradient(145deg, rgba(249,115,22,0.24), rgba(124,45,18,0.2))"
+                              : stepTheme.tileBackground,
+                            padding: "12px 10px",
+                            transition: "all 120ms ease",
+                          }}
+                          onClick={() => model.onToggleProvider(provider)}
+                        >
+                          <Stack align="center" gap={8}>
+                            {renderProviderLogo(provider)}
+                            <Text ta="center" size="sm" fw={600} lh={1.2}>
+                              {provider}
+                            </Text>
+                          </Stack>
+                        </UnstyledButton>
+                      </motion.div>
+                    );
+                  })}
+                </SimpleGrid>
+
+                <Select
+                  label="Country"
+                  description="Movies will be filtered for availability in this region."
+                  leftSection={<IconMapPin size={16} />}
+                  data={COUNTRY_OPTIONS.map((c) => ({
+                    value: c.code,
+                    label: c.label
+                  }))}
+                  value={model.country}
+                  onChange={(value) => model.onCountryChange(value ?? "DE")}
+                  styles={{
+                    input: {
+                      background: "rgba(255,255,255,0.04)",
+                      borderColor: "rgba(255,255,255,0.12)"
+                    }
+                  }}
+                />
+              </Stack>
             ) : null}
           </motion.div>
         </AnimatePresence>
@@ -239,11 +283,19 @@ export function SetupFlow({ model }: { model: SetupFlowModel }) {
         <Button onClick={model.onContinue} loading={model.isBusy}>
           {model.setupStep >= setupLastStep(model.setupMode)
             ? model.setupMode === "create"
-              ? "Create room"
+              ? "Save preferences"
               : "Join room"
             : "Continue"}
         </Button>
       </Group>
+
+      {model.roomCode ? (
+        <InviteModal
+          opened={inviteOpen}
+          onClose={() => setInviteOpen(false)}
+          roomCode={model.roomCode}
+        />
+      ) : null}
     </Paper>
   );
 }

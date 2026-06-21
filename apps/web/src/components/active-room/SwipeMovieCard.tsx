@@ -1,7 +1,8 @@
 import { Badge, Box, Image, Text, Title } from "@mantine/core";
 import { useDraggable } from "@dnd-kit/core";
-import type { CSSProperties } from "react";
+import { type CSSProperties } from "react";
 import type { MovieCandidate } from "@moviematcher/shared";
+import { toPosterUrl } from "../../lib/voting";
 import { releaseYear } from "../../utils/movie";
 
 export function SwipeMovieCard({
@@ -10,13 +11,22 @@ export function SwipeMovieCard({
   disabled,
   exitDirection,
   exitStartX,
+  exitingCandidate,
 }: {
   candidate: MovieCandidate;
   posterUrl: string | null;
   disabled: boolean;
   exitDirection: "left" | "right" | null;
   exitStartX: number;
+  exitingCandidate: MovieCandidate | null;
 }) {
+  // When exiting, render the exiting candidate pinned from when swipe started
+  const displayCandidate = exitingCandidate ?? candidate;
+  const displayPosterUrl =
+    exitingCandidate
+      ? toPosterUrl(exitingCandidate.posterPath)
+      : posterUrl;
+
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: `candidate-${candidate.tmdbId}`,
@@ -42,8 +52,8 @@ export function SwipeMovieCard({
       : {
           transform: exitTransform ?? undefined,
           transition:
-            "transform 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease-out",
-          opacity: 0,
+            "transform 80ms ease-out",
+          opacity: 1,
           touchAction: "none",
         };
 
@@ -60,6 +70,10 @@ export function SwipeMovieCard({
         width: "100%",
         overflow: "hidden",
         borderRadius: 20,
+        willChange:
+          exitDirection !== null
+            ? "transform"
+            : undefined,
       }}
       {...(disabled || exitDirection ? {} : listeners)}
       {...(disabled || exitDirection ? {} : attributes)}
@@ -86,10 +100,10 @@ export function SwipeMovieCard({
         </Badge>
       ) : null}
 
-      {posterUrl ? (
+      {displayPosterUrl ? (
         <Image
-          src={posterUrl}
-          alt={`${candidate.title} poster`}
+          src={displayPosterUrl}
+          alt={`${displayCandidate.title} poster`}
           fit="cover"
           h="100%"
           w="100%"
@@ -125,7 +139,7 @@ export function SwipeMovieCard({
           c="white"
           style={{ textShadow: "0 2px 8px rgba(0,0,0,0.45)" }}
         >
-          {candidate.title} ({releaseYear(candidate.releaseDate)})
+          {displayCandidate.title} ({releaseYear(displayCandidate.releaseDate)})
         </Title>
       </Box>
     </Box>
